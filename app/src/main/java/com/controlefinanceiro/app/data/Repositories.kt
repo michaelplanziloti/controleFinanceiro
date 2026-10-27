@@ -25,6 +25,7 @@ class AuthRepository(private val db: AppDatabase, private val session: SessionSt
 
     suspend fun register(name: String, email: String, password: String, partnerName: String): AuthResult =
         withContext(Dispatchers.IO) {
+            DemoSeed.ensure(db)
             val normalizedEmail = email.trim().lowercase()
             when {
                 name.isBlank() -> return@withContext AuthResult.Error("Informe seu nome.")
@@ -51,6 +52,7 @@ class AuthRepository(private val db: AppDatabase, private val session: SessionSt
         }
 
     suspend fun login(email: String, password: String): AuthResult = withContext(Dispatchers.IO) {
+        DemoSeed.ensure(db)
         val user = db.userDao().findByEmail(email.trim().lowercase())
         if (user == null || !PasswordHasher.matches(password, user.passwordSalt, user.passwordHash)) {
             AuthResult.Error("E-mail ou senha incorretos.")

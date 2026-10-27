@@ -34,6 +34,12 @@ android {
     buildFeatures {
         compose = true
     }
+
+    // The demo account (real spreadsheet data) lives in the git-ignored src/demoSeed folder.
+    // Without it, and always in release, the no-op DemoSeed from src/noDemoSeed is used.
+    val hasDemoSeed = file("src/demoSeed/java").exists()
+    sourceSets["debug"].java.srcDir(if (hasDemoSeed) "src/demoSeed/java" else "src/noDemoSeed/java")
+    sourceSets["release"].java.srcDir("src/noDemoSeed/java")
 }
 
 ksp {

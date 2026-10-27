@@ -39,6 +39,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -102,8 +103,24 @@ fun MoneyText(
         colored && cents > 0 -> money.positive
         else -> Color.Unspecified
     }
-    Text(Money.format(cents), modifier = modifier, style = style, color = tint, fontWeight = FontWeight.SemiBold, maxLines = 1)
+    // Shrinks the font until the value fits, so large amounts in narrow tiles are never cut off.
+    var scale by remember(cents, style) { mutableStateOf(1f) }
+    var ready by remember(cents, style) { mutableStateOf(false) }
+    Text(
+        Money.format(cents),
+        modifier = modifier.drawWithContent { if (ready) drawContent() },
+        style = style.copy(fontSize = style.fontSize * scale),
+        color = tint,
+        fontWeight = FontWeight.SemiBold,
+        maxLines = 1,
+        softWrap = false,
+        onTextLayout = { result ->
+            if (result.didOverflowWidth && scale > MIN_MONEY_SCALE) scale = (scale * 0.92f).coerceAtLeast(MIN_MONEY_SCALE) else ready = true
+        },
+    )
 }
+
+private const val MIN_MONEY_SCALE = 0.6f
 
 /** Green below 90% of the limit, orange up to 100%, red above, like the spreadsheet. */
 @Composable

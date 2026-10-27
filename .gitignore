@@ -8,3 +8,6 @@ captures/
 .externalNativeBuild/
 .cxx/
 .kotlin/
+
+# Demo account built from the real spreadsheet; stays on this machine only
+app/src/demoSeed/

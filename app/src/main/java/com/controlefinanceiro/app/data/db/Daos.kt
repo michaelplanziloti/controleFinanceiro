@@ -38,6 +38,9 @@ interface ReferenceDao {
     @Query("SELECT * FROM categories WHERE user_id = :userId ORDER BY name")
     fun observeCategories(userId: Long): Flow<List<CategoryEntity>>
 
+    @Query("SELECT * FROM categories WHERE user_id = :userId")
+    suspend fun categories(userId: Long): List<CategoryEntity>
+
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertCategories(categories: List<CategoryEntity>)
 
@@ -46,6 +49,9 @@ interface ReferenceDao {
 
     @Query("SELECT * FROM payment_methods WHERE user_id = :userId ORDER BY name")
     fun observePaymentMethods(userId: Long): Flow<List<PaymentMethodEntity>>
+
+    @Query("SELECT * FROM payment_methods WHERE user_id = :userId")
+    suspend fun paymentMethods(userId: Long): List<PaymentMethodEntity>
 
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertPaymentMethods(methods: List<PaymentMethodEntity>)
