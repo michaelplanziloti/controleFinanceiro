@@ -23,8 +23,10 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.automirrored.outlined.TrendingUp
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.KeyboardArrowDown
@@ -105,7 +107,6 @@ import com.controlefinanceiro.app.ui.common.IconBadge
 import com.controlefinanceiro.app.ui.common.LabelValue
 import com.controlefinanceiro.app.ui.common.Money
 import com.controlefinanceiro.app.ui.common.MoneyText
-import com.controlefinanceiro.app.ui.common.PaidToggle
 import com.controlefinanceiro.app.ui.common.Pill
 import com.controlefinanceiro.app.ui.common.SectionCard
 import com.controlefinanceiro.app.ui.common.UsageRing
@@ -118,6 +119,7 @@ import com.controlefinanceiro.app.ui.theme.BlockColors
 import com.controlefinanceiro.app.ui.theme.LocalBlockColors
 import com.controlefinanceiro.app.ui.theme.LocalHeroColors
 import com.controlefinanceiro.app.ui.theme.LocalMoneyColors
+import kotlin.math.abs
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 
@@ -205,12 +207,23 @@ fun MonthScreen(viewModel: MonthViewModel, contentPadding: PaddingValues) {
         returnToList = null
     }
 
+    /** Shows [message] with "Desfazer", replacing any snackbar still on screen instead of queueing behind it. */
+    fun offerUndo(message: String, duration: SnackbarDuration = SnackbarDuration.Short, undo: () -> Unit) {
+        snackbar.currentSnackbarData?.dismiss()
+        scope.launch {
+            if (snackbar.showSnackbar(message, "Desfazer", duration = duration) == SnackbarResult.ActionPerformed) undo()
+        }
+    }
+
     fun deleteWithUndo(expense: ExpenseEntity) {
         viewModel.deleteExpense(expense)
-        scope.launch {
-            val result = snackbar.showSnackbar("\"${expense.description}\" excluído", "Desfazer", duration = SnackbarDuration.Short)
-            if (result == SnackbarResult.ActionPerformed) viewModel.restoreExpense(expense)
-        }
+        offerUndo("\"${expense.description}\" excluído") { viewModel.restoreExpense(expense) }
+    }
+
+    fun togglePaidWithUndo(expense: ExpenseEntity) {
+        viewModel.togglePaid(expense)
+        val message = if (expense.isPaid) "\"${expense.description}\" reaberto" else "\"${expense.description}\" pago"
+        offerUndo(message) { viewModel.restoreExpenses(listOf(expense)) }
     }
 
     val detail = state.detail
@@ -293,7 +306,7 @@ fun MonthScreen(viewModel: MonthViewModel, contentPadding: PaddingValues) {
                     itemsIndexed(list, key = { _, it -> "e-${it.id}" }) { index, expense ->
                         ExpenseRow(expense, viewModel.resolvedPlanned(expense), state.reference, color,
                             shape = groupShape(index, list.size),
-                            onToggle = { viewModel.togglePaid(expense) },
+                            onToggle = { togglePaidWithUndo(expense) },
                             onClick = { editingExpense = expense },
                             onDelete = { deleteWithUndo(expense) })
                     }
@@ -406,10 +419,11 @@ fun MonthScreen(viewModel: MonthViewModel, contentPadding: PaddingValues) {
             expenses = detail?.expenses.orEmpty().filter(filter::matches),
             reference = state.reference,
             plannedOf = viewModel::resolvedPlanned,
-            onToggle = { viewModel.togglePaid(it) },
+            onToggle = ::togglePaidWithUndo,
             onClick = ::editFromList,
             onDelete = ::deleteWithUndo,
             onPayAll = { open -> payingAll = filter to open },
+            snackbar = snackbar,
             onDismiss = { expenseList = null },
         )
     }
@@ -422,11 +436,8 @@ fun MonthScreen(viewModel: MonthViewModel, contentPadding: PaddingValues) {
                 viewModel.payAll(open, onDay15)
                 payingAll = null
                 expenseList = null
-                scope.launch {
-                    val label = if (open.size == 1) "1 item baixado" else "${open.size} itens baixados"
-                    val result = snackbar.showSnackbar("$label · ${filter.title}", "Desfazer", duration = SnackbarDuration.Long)
-                    if (result == SnackbarResult.ActionPerformed) viewModel.restoreExpenses(open)
-                }
+                val label = if (open.size == 1) "1 item baixado" else "${open.size} itens baixados"
+                offerUndo("$label · ${filter.title}", SnackbarDuration.Long) { viewModel.restoreExpenses(open) }
             },
             onDismiss = { payingAll = null },
         )
@@ -774,29 +785,47 @@ private fun ExpenseRow(
     onClick: () -> Unit,
     onDelete: () -> Unit,
 ) {
-    // A quick vertical scroll with a little sideways drift passes the swipe's velocity threshold and
-    // would "dismiss" the row, so only a drag that really travelled 40% of the width deletes.
+    // Swipe right marks paid (or reopens), swipe left deletes. A quick vertical scroll with a little
+    // sideways drift passes the swipe's velocity threshold, so only a drag that really travelled
+    // 40% of the width counts.
+    val currentOnToggle by rememberUpdatedState(onToggle)
     val currentOnDelete by rememberUpdatedState(onDelete)
     var rowWidth by remember { mutableFloatStateOf(0f) }
     val stateRef = remember { arrayOfNulls<SwipeToDismissBoxState>(1) }
     val dismissState = rememberSwipeToDismissBoxState(
         confirmValueChange = {
-            val dragged = -(stateRef[0]?.requireOffset() ?: 0f)
-            if (it == SwipeToDismissBoxValue.EndToStart && rowWidth > 0f && dragged >= rowWidth * SWIPE_DELETE_FRACTION) currentOnDelete()
+            val dragged = abs(stateRef[0]?.requireOffset() ?: 0f)
+            if (rowWidth > 0f && dragged >= rowWidth * SWIPE_FRACTION) {
+                when (it) {
+                    SwipeToDismissBoxValue.StartToEnd -> currentOnToggle()
+                    SwipeToDismissBoxValue.EndToStart -> currentOnDelete()
+                    SwipeToDismissBoxValue.Settled -> Unit
+                }
+            }
             false
         },
-        positionalThreshold = { distance -> distance * SWIPE_DELETE_FRACTION },
+        positionalThreshold = { distance -> distance * SWIPE_FRACTION },
     )
     stateRef[0] = dismissState
     SwipeToDismissBox(
         state = dismissState,
         modifier = Modifier.onSizeChanged { rowWidth = it.width.toFloat() },
-        enableDismissFromStartToEnd = false,
         backgroundContent = {
-            Box(
-                Modifier.fillMaxSize().clip(shape).background(MaterialTheme.colorScheme.errorContainer).padding(horizontal = 24.dp),
-                contentAlignment = Alignment.CenterEnd,
-            ) { Icon(Icons.Outlined.DeleteOutline, "Excluir", tint = MaterialTheme.colorScheme.onErrorContainer) }
+            when (dismissState.dismissDirection) {
+                SwipeToDismissBoxValue.StartToEnd -> Row(
+                    Modifier.fillMaxSize().clip(shape).background(color.copy(alpha = 0.18f)).padding(horizontal = 24.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(if (expense.isPaid) Icons.AutoMirrored.Filled.Undo else Icons.Default.Check, null, tint = color)
+                    Spacer(Modifier.width(8.dp))
+                    Text(if (expense.isPaid) "Reabrir" else "Dar baixa", style = MaterialTheme.typography.labelLarge, color = color)
+                }
+                SwipeToDismissBoxValue.EndToStart -> Box(
+                    Modifier.fillMaxSize().clip(shape).background(MaterialTheme.colorScheme.errorContainer).padding(horizontal = 24.dp),
+                    contentAlignment = Alignment.CenterEnd,
+                ) { Icon(Icons.Outlined.DeleteOutline, "Excluir", tint = MaterialTheme.colorScheme.onErrorContainer) }
+                SwipeToDismissBoxValue.Settled -> Unit
+            }
         },
     ) {
         val actual = BudgetCalculator.actual(expense)
@@ -809,11 +838,9 @@ private fun ExpenseRow(
         ).joinToString(" · ")
         Row(
             Modifier.fillMaxWidth().clip(shape).background(MaterialTheme.colorScheme.surfaceContainerLow)
-                .clickable(onClick = onClick).padding(start = 4.dp, end = 16.dp, top = 6.dp, bottom = 6.dp),
+                .clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            PaidToggle(expense.isPaid, color, onToggle)
-            Spacer(Modifier.width(4.dp))
             Column(Modifier.weight(1f)) {
                 Text(
                     expense.description, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis,
@@ -965,7 +992,7 @@ private fun PaymentMethodsCard(summary: MonthSummary, reference: ReferenceData, 
 }
 
 private const val NO_METHOD = "Sem forma"
-private const val SWIPE_DELETE_FRACTION = 0.4f
+private const val SWIPE_FRACTION = 0.4f
 private const val ANCHOR_INCOME = "income"
 private const val ANCHOR_USAGE = "usage"
 private const val ANCHOR_GROUPS = "groups"
@@ -1002,6 +1029,7 @@ private fun ExpenseListSheet(
     onClick: (ExpenseEntity) -> Unit,
     onDelete: (ExpenseEntity) -> Unit,
     onPayAll: (List<ExpenseEntity>) -> Unit,
+    snackbar: SnackbarHostState,
     onDismiss: () -> Unit,
 ) {
     val blocks = LocalBlockColors.current
@@ -1036,22 +1064,25 @@ private fun ExpenseListSheet(
             }
             Spacer(Modifier.height(12.dp))
         }
-        LazyColumn(
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 32.dp),
-            verticalArrangement = Arrangement.spacedBy(2.dp),
-        ) {
-            if (expenses.isEmpty()) {
-                val text = if (filter is ExpenseFilter.ByMethod && filter.methodId == null) "Todos os lançamentos já têm forma de pagamento."
-                else "Nenhum lançamento neste mês."
-                item("empty") { EmptyLine(text) }
+        Box {
+            LazyColumn(
+                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 32.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                if (expenses.isEmpty()) {
+                    val text = if (filter is ExpenseFilter.ByMethod && filter.methodId == null) "Todos os lançamentos já têm forma de pagamento."
+                    else "Nenhum lançamento neste mês."
+                    item("empty") { EmptyLine(text) }
+                }
+                itemsIndexed(expenses, key = { _, it -> "list-${it.id}" }) { index, expense ->
+                    ExpenseRow(expense, plannedOf(expense), reference, blocks.of(expense.block),
+                        shape = groupShape(index, expenses.size),
+                        onToggle = { onToggle(expense) },
+                        onClick = { onClick(expense) },
+                        onDelete = { onDelete(expense) })
+                }
             }
-            itemsIndexed(expenses, key = { _, it -> "list-${it.id}" }) { index, expense ->
-                ExpenseRow(expense, plannedOf(expense), reference, blocks.of(expense.block),
-                    shape = groupShape(index, expenses.size),
-                    onToggle = { onToggle(expense) },
-                    onClick = { onClick(expense) },
-                    onDelete = { onDelete(expense) })
-            }
+            SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter))
         }
     }
 }

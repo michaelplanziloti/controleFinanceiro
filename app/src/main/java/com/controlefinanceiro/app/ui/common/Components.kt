@@ -3,10 +3,8 @@ package com.controlefinanceiro.app.ui.common
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -23,8 +21,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
@@ -224,30 +220,6 @@ fun groupShape(index: Int, count: Int): Shape = when {
     index == 0 -> RoundedCornerShape(topStart = Outer, topEnd = Outer, bottomStart = Inner, bottomEnd = Inner)
     index == count - 1 -> RoundedCornerShape(topStart = Inner, topEnd = Inner, bottomStart = Outer, bottomEnd = Outer)
     else -> RoundedCornerShape(Inner)
-}
-
-/** Round "paid" check in the block color. */
-@Composable
-fun PaidToggle(checked: Boolean, color: Color, onToggle: () -> Unit, modifier: Modifier = Modifier) {
-    val fill by animateColorAsState(if (checked) color else Color.Transparent, label = "paid")
-    Box(
-        modifier
-            .size(44.dp)
-            .clip(CircleShape)
-            .clickable(onClick = onToggle),
-        contentAlignment = Alignment.Center,
-    ) {
-        Box(
-            Modifier
-                .size(26.dp)
-                .clip(CircleShape)
-                .background(fill)
-                .border(BorderStroke(2.dp, if (checked) color else MaterialTheme.colorScheme.outline), CircleShape),
-            contentAlignment = Alignment.Center,
-        ) {
-            if (checked) Icon(Icons.Default.Check, "Pago", Modifier.size(16.dp), tint = MaterialTheme.colorScheme.surface)
-        }
-    }
 }
 
 @Composable
