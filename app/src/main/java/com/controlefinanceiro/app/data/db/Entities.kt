@@ -9,10 +9,11 @@ import androidx.room.PrimaryKey
 /**
  * Relational model (all money values are stored in cents to avoid floating point errors).
  *
- * users 1─N people, categories, payment_methods, months
+ * users 1─N people, categories, payment_methods, cards, months
  * users 1─1 budget_settings
  * months 1─N incomes, allowances, expenses
  * people 1─N incomes, allowances, expenses (personal block)
+ * cards 1─N expenses (optional link, e.g. "Santander")
  */
 
 @Entity(tableName = "users", indices = [Index(value = ["email"], unique = true)])
@@ -55,6 +56,18 @@ data class CategoryEntity(
     indices = [Index("user_id"), Index(value = ["user_id", "name"], unique = true)],
 )
 data class PaymentMethodEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    @ColumnInfo(name = "user_id") val userId: Long,
+    val name: String,
+)
+
+/** A credit card the user wants to follow separately (expected vs spent per month). */
+@Entity(
+    tableName = "cards",
+    foreignKeys = [ForeignKey(entity = UserEntity::class, parentColumns = ["id"], childColumns = ["user_id"], onDelete = ForeignKey.CASCADE)],
+    indices = [Index("user_id"), Index(value = ["user_id", "name"], unique = true)],
+)
+data class CardEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     @ColumnInfo(name = "user_id") val userId: Long,
     val name: String,
@@ -129,8 +142,9 @@ enum class ExpenseBlock { TITHE, FIXED, COUPLE, PERSONAL, INVESTMENT, EXTRA }
         ForeignKey(entity = CategoryEntity::class, parentColumns = ["id"], childColumns = ["category_id"], onDelete = ForeignKey.SET_NULL),
         ForeignKey(entity = PaymentMethodEntity::class, parentColumns = ["id"], childColumns = ["payment_method_id"], onDelete = ForeignKey.SET_NULL),
         ForeignKey(entity = PersonEntity::class, parentColumns = ["id"], childColumns = ["person_id"], onDelete = ForeignKey.SET_NULL),
+        ForeignKey(entity = CardEntity::class, parentColumns = ["id"], childColumns = ["card_id"], onDelete = ForeignKey.SET_NULL),
     ],
-    indices = [Index("month_id"), Index("category_id"), Index("payment_method_id"), Index("person_id")],
+    indices = [Index("month_id"), Index("category_id"), Index("payment_method_id"), Index("person_id"), Index("card_id")],
 )
 data class ExpenseEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
@@ -141,6 +155,7 @@ data class ExpenseEntity(
     @ColumnInfo(name = "payment_method_id") val paymentMethodId: Long? = null,
     /** Required for the PERSONAL block (whose allowance it uses). */
     @ColumnInfo(name = "person_id") val personId: Long? = null,
+    @ColumnInfo(name = "card_id") val cardId: Long? = null,
     /** Free text such as "15", "30" or "15/30". */
     @ColumnInfo(name = "due_day") val dueDay: String? = null,
     @ColumnInfo(name = "planned_cents") val plannedCents: Long = 0,

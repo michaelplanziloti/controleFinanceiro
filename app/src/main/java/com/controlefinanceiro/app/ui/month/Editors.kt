@@ -65,6 +65,7 @@ fun ExpenseEditorSheet(
     var personId by remember { mutableStateOf(initial.personId ?: reference.people.firstOrNull()?.id) }
     var categoryId by remember { mutableStateOf(initial.categoryId) }
     var methodId by remember { mutableStateOf(initial.paymentMethodId) }
+    var cardId by remember { mutableStateOf(initial.cardId) }
     var dueDay by remember { mutableStateOf(initial.dueDay.orEmpty()) }
     var planned by remember { mutableStateOf(Money.toInput(initial.plannedCents)) }
     var auto by remember { mutableStateOf(initial.autoPlanned) }
@@ -112,6 +113,7 @@ fun ExpenseEditorSheet(
                 )
                 OutlinedTextField(dueDay, { dueDay = it }, Modifier.weight(1f), label = { Text("Venc.") }, singleLine = true)
             }
+            DropdownField("Cartão", reference.cards, reference.cards.firstOrNull { it.id == cardId }, { it.name }, { cardId = it?.id })
             if (block == ExpenseBlock.TITHE) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("Calcular pela renda", Modifier.weight(1f))
@@ -142,6 +144,7 @@ fun ExpenseEditorSheet(
                                 personId = if (block == ExpenseBlock.PERSONAL) personId else null,
                                 categoryId = categoryId,
                                 paymentMethodId = methodId,
+                                cardId = cardId,
                                 dueDay = dueDay.trim().ifEmpty { null },
                                 plannedCents = Money.parse(planned) ?: 0,
                                 autoPlanned = block == ExpenseBlock.TITHE && auto,

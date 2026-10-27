@@ -44,6 +44,8 @@ data class MonthSummary(
     val people: List<PersonLine>,
     val coupleActualCents: Long,
     val byPaymentMethod: Map<Long?, Pair<Long, Long>>,
+    /** Planned to actual per card, only for expenses linked to a card. */
+    val byCard: Map<Long, Pair<Long, Long>>,
     val byCategory: Map<Long?, Pair<Long, Long>>,
 ) {
     val plannedCents: Long get() = groups.sumOf { it.plannedCents }
@@ -139,6 +141,9 @@ object BudgetCalculator {
             people = lines,
             coupleActualCents = coupleActual,
             byPaymentMethod = expenses.groupBy { it.paymentMethodId }.mapValues { (_, list) ->
+                list.sumOf { resolvedPlanned(it, income, settings) } to list.sumOf { actual(it) }
+            },
+            byCard = expenses.filter { it.cardId != null }.groupBy { it.cardId!! }.mapValues { (_, list) ->
                 list.sumOf { resolvedPlanned(it, income, settings) } to list.sumOf { actual(it) }
             },
             byCategory = expenses.groupBy { it.categoryId }.mapValues { (_, list) ->

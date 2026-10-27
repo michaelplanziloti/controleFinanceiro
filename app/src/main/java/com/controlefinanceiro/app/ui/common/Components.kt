@@ -50,6 +50,7 @@ import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -57,6 +58,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.controlefinanceiro.app.ui.theme.LocalMoneyColors
+import java.text.Normalizer
 
 /** Flat card on the container color, with an optional title row and trailing action. */
 @Composable
@@ -253,6 +255,10 @@ fun Dot(color: Color, size: Int = 10) {
     Box(Modifier.size(size.dp).clip(CircleShape).background(color))
 }
 
+/**
+ * Dropdown whose field doubles as a search box: tap it and type to filter the options
+ * (case and accents are ignored). The current value stays as the placeholder while typing.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun <T> DropdownField(
@@ -264,28 +270,56 @@ fun <T> DropdownField(
     modifier: Modifier = Modifier,
     noneLabel: String? = "Nenhum",
 ) {
+    val focus = LocalFocusManager.current
     var expanded by remember { mutableStateOf(false) }
-    ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }, modifier = modifier) {
+    // Null while not searching, so the field shows the selected value.
+    var query by remember { mutableStateOf<String?>(null) }
+    val selectedLabel = selected?.let(optionLabel) ?: (noneLabel ?: "")
+    val filtered = query?.takeIf { it.isNotBlank() }?.let { q ->
+        val needle = q.searchKey()
+        options.filter { optionLabel(it).searchKey().contains(needle) }
+    } ?: options
+
+    fun close() {
+        expanded = false
+        query = null
+        focus.clearFocus()
+    }
+
+    ExposedDropdownMenuBox(
+        expanded = expanded,
+        onExpandedChange = { open -> if (open) { expanded = true; query = "" } else close() },
+        modifier = modifier,
+    ) {
         OutlinedTextField(
-            value = selected?.let(optionLabel) ?: (noneLabel ?: ""),
-            onValueChange = {},
-            readOnly = true,
+            value = query ?: selectedLabel,
+            onValueChange = { query = it; expanded = true },
             label = { Text(label) },
+            placeholder = { Text(selectedLabel, maxLines = 1, overflow = TextOverflow.Ellipsis) },
             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) },
-            modifier = Modifier.fillMaxWidth().menuAnchor(MenuAnchorType.PrimaryNotEditable),
+            modifier = Modifier.fillMaxWidth().menuAnchor(MenuAnchorType.PrimaryEditable),
             shape = MaterialTheme.shapes.small,
             singleLine = true,
         )
-        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            if (noneLabel != null) {
-                DropdownMenuItem(text = { Text(noneLabel) }, onClick = { onSelect(null); expanded = false })
+        ExposedDropdownMenu(expanded = expanded, onDismissRequest = ::close) {
+            if (noneLabel != null && query.isNullOrBlank()) {
+                DropdownMenuItem(text = { Text(noneLabel) }, onClick = { onSelect(null); close() })
             }
-            options.forEach { option ->
-                DropdownMenuItem(text = { Text(optionLabel(option)) }, onClick = { onSelect(option); expanded = false })
+            filtered.forEach { option ->
+                DropdownMenuItem(text = { Text(optionLabel(option)) }, onClick = { onSelect(option); close() })
+            }
+            if (filtered.isEmpty()) {
+                DropdownMenuItem(text = { Text("Nada encontrado") }, onClick = {}, enabled = false)
             }
         }
     }
 }
+
+/** Lowercase text without accents, so "itau" finds "Itaú". */
+fun String.searchKey(): String =
+    Normalizer.normalize(this, Normalizer.Form.NFD).replace(DIACRITICS, "").lowercase().trim()
+
+private val DIACRITICS = Regex("\\p{Mn}+")
 
 @Composable
 fun AmountField(label: String, value: String, onValueChange: (String) -> Unit, modifier: Modifier = Modifier) {

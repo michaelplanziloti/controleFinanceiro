@@ -107,8 +107,17 @@ fun SettingsScreen(viewModel: SettingsViewModel, contentPadding: PaddingValues) 
                     title = "Formas de pagamento",
                     hint = null,
                     items = state.paymentMethods.map { it.name to { viewModel.deletePaymentMethod(it) } },
-                    placeholder = "Ex.: Cartão Santander",
+                    placeholder = "Ex.: Pix",
                     onAdd = viewModel::addPaymentMethod,
+                )
+            }
+            item {
+                ChipListCard(
+                    title = "Cartões",
+                    hint = "Ligue um cartão aos lançamentos para ver, no início do mês, quanto vai e quanto já foi em cada um.",
+                    items = state.cards.map { it.name to { viewModel.deleteCard(it) } },
+                    placeholder = "Ex.: Nubank",
+                    onAdd = viewModel::addCard,
                 )
             }
             state.budget?.let { budget -> item { BudgetRuleCard(budget, viewModel::saveBudget) } }

@@ -4,6 +4,7 @@ import androidx.room.withTransaction
 import com.controlefinanceiro.app.data.db.AllowanceEntity
 import com.controlefinanceiro.app.data.db.AppDatabase
 import com.controlefinanceiro.app.data.db.BudgetSettingsEntity
+import com.controlefinanceiro.app.data.db.CardEntity
 import com.controlefinanceiro.app.data.db.CategoryEntity
 import com.controlefinanceiro.app.data.db.ExpenseBlock
 import com.controlefinanceiro.app.data.db.ExpenseEntity
@@ -94,6 +95,7 @@ class FinanceRepository(private val db: AppDatabase) {
     fun observePeople(userId: Long) = ref.observePeople(userId)
     fun observeCategories(userId: Long) = ref.observeCategories(userId)
     fun observePaymentMethods(userId: Long) = ref.observePaymentMethods(userId)
+    fun observeCards(userId: Long) = ref.observeCards(userId)
     fun observeSettings(userId: Long) = ref.observeSettings(userId)
     fun observeYear(userId: Long, year: Int) = months.observeYear(userId, year)
     fun observeYearIncomes(userId: Long, year: Int) = months.observeYearIncomes(userId, year)
@@ -155,5 +157,7 @@ class FinanceRepository(private val db: AppDatabase) {
     suspend fun addPaymentMethod(userId: Long, name: String) =
         ref.insertPaymentMethods(listOf(PaymentMethodEntity(userId = userId, name = name.trim())))
     suspend fun deletePaymentMethod(method: PaymentMethodEntity) = ref.deletePaymentMethod(method)
+    suspend fun addCard(userId: Long, name: String) = ref.insertCards(listOf(CardEntity(userId = userId, name = name.trim())))
+    suspend fun deleteCard(card: CardEntity) = ref.deleteCard(card)
     suspend fun saveSettings(settings: BudgetSettingsEntity) = ref.upsertSettings(settings)
 }

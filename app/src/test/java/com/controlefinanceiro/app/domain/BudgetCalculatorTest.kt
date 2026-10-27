@@ -7,6 +7,7 @@ import com.controlefinanceiro.app.data.db.ExpenseEntity
 import com.controlefinanceiro.app.data.db.IncomeEntity
 import com.controlefinanceiro.app.data.db.PersonEntity
 import com.controlefinanceiro.app.ui.common.Money
+import com.controlefinanceiro.app.ui.common.searchKey
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -93,6 +94,26 @@ class BudgetCalculatorTest {
             emptyList(), emptyList(), listOf(julia, michael), settings,
         )
         assertTrue(s.people.all { it.incomeShare == 0.5 })
+    }
+
+    @Test
+    fun totalsPerCardOnlyCountLinkedExpenses() {
+        val s = BudgetCalculator.summarize(
+            emptyList(), emptyList(),
+            listOf(
+                ExpenseEntity(monthId = 1, block = ExpenseBlock.FIXED, description = "Spotify", cardId = 7, plannedCents = 2_000, paidDay15Cents = 2_000),
+                ExpenseEntity(monthId = 1, block = ExpenseBlock.COUPLE, description = "Mercado", cardId = 7, plannedCents = 50_000, paidDay30Cents = 30_000),
+                ExpenseEntity(monthId = 1, block = ExpenseBlock.COUPLE, description = "Feira", plannedCents = 10_000, paidDay30Cents = 10_000),
+            ),
+            listOf(julia, michael), settings,
+        )
+        assertEquals(mapOf(7L to (52_000L to 32_000L)), s.byCard)
+    }
+
+    @Test
+    fun searchKeyIgnoresCaseAndAccents() {
+        assertEquals("itau", "Itaú".searchKey())
+        assertTrue("Variáveis do casal".searchKey().contains("variaveis"))
     }
 
     @Test

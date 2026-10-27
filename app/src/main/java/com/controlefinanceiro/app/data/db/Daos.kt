@@ -59,6 +59,18 @@ interface ReferenceDao {
     @Delete
     suspend fun deletePaymentMethod(method: PaymentMethodEntity)
 
+    @Query("SELECT * FROM cards WHERE user_id = :userId ORDER BY name")
+    fun observeCards(userId: Long): Flow<List<CardEntity>>
+
+    @Query("SELECT * FROM cards WHERE user_id = :userId")
+    suspend fun cards(userId: Long): List<CardEntity>
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertCards(cards: List<CardEntity>)
+
+    @Delete
+    suspend fun deleteCard(card: CardEntity)
+
     @Query("SELECT * FROM budget_settings WHERE user_id = :userId")
     fun observeSettings(userId: Long): Flow<BudgetSettingsEntity?>
 

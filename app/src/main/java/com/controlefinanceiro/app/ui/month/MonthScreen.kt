@@ -222,6 +222,7 @@ fun MonthScreen(viewModel: MonthViewModel, contentPadding: PaddingValues) {
                 verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
                 item("overview") { HeroCard(summary) }
+                item("cards") { CardsCard(summary, state.reference, Modifier.padding(top = 12.dp)) }
                 item("usage") { IncomeUsageCard(summary, Modifier.padding(top = 12.dp)) }
                 item("groups") { GroupsCard(summary, Modifier.padding(top = 12.dp)) }
                 item("couple") { CoupleCard(summary, Modifier.padding(top = 12.dp)) { editingAllowance = it } }
@@ -656,7 +657,9 @@ private fun ExpenseRow(
         val actual = BudgetCalculator.actual(expense)
         val details = listOfNotNull(
             reference.categories.firstOrNull { it.id == expense.categoryId }?.name,
-            reference.paymentMethods.firstOrNull { it.id == expense.paymentMethodId }?.name,
+            // A linked card says more than "Cartão de crédito", and keeps the line short.
+            reference.cards.firstOrNull { it.id == expense.cardId }?.let { "Cartão ${it.name}" }
+                ?: reference.paymentMethods.firstOrNull { it.id == expense.paymentMethodId }?.name,
             expense.dueDay?.let { "dia $it" },
         ).joinToString(" · ")
         Row(
@@ -713,6 +716,69 @@ private fun EmptyLine(text: String) {
             .padding(horizontal = 16.dp, vertical = 14.dp),
         style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
+}
+
+/** Expected (planned) against spent (paid) on each card this month. */
+@Composable
+private fun CardsCard(summary: MonthSummary, reference: ReferenceData, modifier: Modifier) {
+    val color = MaterialTheme.colorScheme.tertiary
+    SectionCard(modifier, title = "Cartões", subtitle = "Gasto de esperado no mês") {
+        if (reference.cards.isEmpty()) {
+            Text(
+                "Cadastre seus cartões em Ajustes e escolha o cartão em cada lançamento.",
+                style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            return@SectionCard
+        }
+        val lines = reference.cards
+            .map { card -> card to (summary.byCard[card.id] ?: (0L to 0L)) }
+            .sortedByDescending { (_, values) -> values.first }
+        lines.forEachIndexed { index, (card, values) ->
+            val (expected, spent) = values
+            if (index > 0) Spacer(Modifier.height(16.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconBadge(Icons.Outlined.CreditCard, color, size = 36.dp)
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(card.name, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(
+                        cardStatus(expected, spent), style = MaterialTheme.typography.bodySmall,
+                        color = if (spent > expected) LocalMoneyColors.current.negative else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Column(horizontalAlignment = Alignment.End) {
+                    MoneyText(spent, style = MaterialTheme.typography.titleSmall)
+                    Text("de ${Money.format(expected)}", style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+            BudgetBar(spent, expected, color, height = 6.dp)
+        }
+        if (lines.size > 1) {
+            val expected = lines.sumOf { it.second.first }
+            val spent = lines.sumOf { it.second.second }
+            Spacer(Modifier.height(18.dp))
+            Row(
+                Modifier.fillMaxWidth().clip(MaterialTheme.shapes.medium).background(MaterialTheme.colorScheme.surfaceContainer)
+                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("Total nos cartões", Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
+                MoneyText(spent, style = MaterialTheme.typography.titleSmall)
+                Text(" de ${Money.format(expected)}", style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+    }
+}
+
+private fun cardStatus(expected: Long, spent: Long): String = when {
+    expected == 0L && spent == 0L -> "Nada lançado neste mês"
+    spent == expected -> "Fechou no esperado"
+    spent > expected -> "Passou ${Money.format(spent - expected)} do esperado"
+    else -> "Faltam ${Money.format(expected - spent)}"
 }
 
 @Composable

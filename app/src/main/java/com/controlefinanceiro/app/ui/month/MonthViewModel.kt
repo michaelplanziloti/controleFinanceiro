@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.controlefinanceiro.app.data.FinanceRepository
 import com.controlefinanceiro.app.data.db.AllowanceEntity
 import com.controlefinanceiro.app.data.db.BudgetSettingsEntity
+import com.controlefinanceiro.app.data.db.CardEntity
 import com.controlefinanceiro.app.data.db.CategoryEntity
 import com.controlefinanceiro.app.data.db.ExpenseEntity
 import com.controlefinanceiro.app.data.db.IncomeEntity
@@ -29,6 +30,7 @@ data class ReferenceData(
     val people: List<PersonEntity> = emptyList(),
     val categories: List<CategoryEntity> = emptyList(),
     val paymentMethods: List<PaymentMethodEntity> = emptyList(),
+    val cards: List<CardEntity> = emptyList(),
     val settings: BudgetSettingsEntity? = null,
 )
 
@@ -56,8 +58,9 @@ class MonthViewModel(private val userId: Long, private val repo: FinanceReposito
         repo.observePeople(userId),
         repo.observeCategories(userId),
         repo.observePaymentMethods(userId),
+        repo.observeCards(userId),
         repo.observeSettings(userId),
-    ) { people, categories, methods, settings -> ReferenceData(people, categories, methods, settings) }
+    ) { people, categories, methods, cards, settings -> ReferenceData(people, categories, methods, cards, settings) }
 
     private val months = repo.observeMonths(userId)
 
