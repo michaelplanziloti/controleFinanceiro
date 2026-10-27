@@ -21,7 +21,7 @@ import com.controlefinanceiro.app.ui.theme.FinanceTheme
 
 private const val LOADING = -1L
 
-class MainActivity : CoponentActivity() {
+class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
