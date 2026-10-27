@@ -6,10 +6,25 @@ App Android em Kotlin com a mesma ideia da planilha "Controle Financeiro 2026": 
 
 1. Instale o Android Studio (Ladybug ou mais novo).
 2. Mova a pasta `ControleFinanceiro` para um caminho curto, por exemplo `C:\dev\ControleFinanceiro`. Caminhos muito longos quebram o build no Windows.
-3. No Android Studio: File > Open e escolha a pasta. Ele baixa o Gradle 8.7 e as dependências.
+3. No Android Studio: File > Open e escolha a pasta. Ele baixa o Gradle 8.13 e as dependências.
 4. Rode no emulador ou no celular (Android 8.0 ou mais novo).
 
 Testes da lógica de orçamento: `./gradlew test` (ou clique em `BudgetCalculatorTest` e rode).
+
+## Publicar uma versão
+
+O GitHub Actions ([release.yml](.github/workflows/release.yml)) gera o APK e o AAB assinados e cria uma Release no GitHub quando você envia uma tag `v*`:
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+O número da tag vira o `versionName`, e o número da execução do workflow vira o `versionCode`. O APK fica em *Releases* no GitHub para baixar e instalar; o AAB serve para a Play Store.
+
+A assinatura usa quatro secrets do repositório: `RELEASE_KEYSTORE_BASE64`, `RELEASE_STORE_PASSWORD`, `RELEASE_KEY_ALIAS` e `RELEASE_KEY_PASSWORD`. Para gerar um release assinado na sua máquina, crie um `keystore.properties` na raiz (ele fica fora do Git) com `storeFile`, `storePassword`, `keyAlias` e `keyPassword`. Sem ele, o release sai sem assinatura.
+
+Guarde o arquivo `.jks` e as senhas num lugar seguro: sem eles não dá para publicar atualizações do app.
 
 ## Tecnologia
 

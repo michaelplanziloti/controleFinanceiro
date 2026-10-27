@@ -11,3 +11,8 @@ captures/
 
 # Demo account built from the real spreadsheet; stays on this machine only
 app/src/demoSeed/
+
+# Release signing (keystore lives outside the repo)
+keystore.properties
+*.jks
+*.keystore

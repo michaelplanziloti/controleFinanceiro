@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -5,21 +7,43 @@ plugins {
     alias(libs.plugins.ksp)
 }
 
+// Release signing comes from environment variables (CI) or from a git-ignored keystore.properties
+// at the project root (local builds). Without either, release builds come out unsigned.
+val keystoreProps = Properties().apply {
+    val file = rootProject.file("keystore.properties")
+    if (file.exists()) file.inputStream().use { load(it) }
+}
+fun signingValue(env: String, key: String): String? = System.getenv(env) ?: keystoreProps.getProperty(key)
+val releaseStoreFile = signingValue("RELEASE_STORE_FILE", "storeFile")
+
 android {
     namespace = "com.controlefinanceiro.app"
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "com.controlefinanceiro.app"
+        applicationId = "io.github.michaelplanziloti.controlefinanceiro"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
-        versionName = "0.1.0"
+        // CI passes these from the release tag; local builds keep the defaults.
+        versionCode = (findProperty("versionCode") as String?)?.toInt() ?: 1
+        versionName = (findProperty("versionName") as String?) ?: "0.1.0"
+    }
+
+    signingConfigs {
+        if (releaseStoreFile != null) {
+            create("release") {
+                storeFile = rootProject.file(releaseStoreFile)
+                storePassword = signingValue("RELEASE_STORE_PASSWORD", "storePassword")
+                keyAlias = signingValue("RELEASE_KEY_ALIAS", "keyAlias")
+                keyPassword = signingValue("RELEASE_KEY_PASSWORD", "keyPassword")
+            }
+        }
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
+            signingConfig = signingConfigs.findByName("release")
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }
