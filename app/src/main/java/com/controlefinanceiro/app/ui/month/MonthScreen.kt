@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
@@ -47,25 +48,31 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxState
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -73,11 +80,13 @@ import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.controlefinanceiro.app.data.db.CardEntity
 import com.controlefinanceiro.app.data.db.ExpenseBlock
 import com.controlefinanceiro.app.data.db.ExpenseEntity
 import com.controlefinanceiro.app.data.db.IncomeEntity
@@ -105,11 +114,6 @@ import com.controlefinanceiro.app.ui.theme.LocalBlockColors
 import com.controlefinanceiro.app.ui.theme.LocalHeroColors
 import com.controlefinanceiro.app.ui.theme.LocalMoneyColors
 import kotlinx.coroutines.launch
-import com.controlefinanceiro.app.data.db.CardEntity
-import androidx.compose.runtime.withFrameNanos
-import androidx.compose.material3.rememberModalBottomSheetState
-import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.foundation.lazy.rememberLazyListState
 import java.time.LocalDate
 
 /** Sections shown in the month, top to bottom. TITHE is listed inside the fixed section. */
@@ -148,7 +152,9 @@ fun MonthScreen(viewModel: MonthViewModel, contentPadding: PaddingValues) {
     var showNewMonth by remember { mutableStateOf(false) }
     var showPicker by remember { mutableStateOf(false) }
     var confirmDeleteMonth by remember { mutableStateOf(false) }
+    // Sections start collapsed, so the month opens on the overview; a missing key means collapsed.
     val collapsed = remember { mutableStateMapOf<String, Boolean>() }
+    fun isCollapsed(key: String) = collapsed[key] ?: true
     val listState = rememberLazyListState()
     // Where each section starts in the list, filled while the list is built.
     val anchors = remember { mutableMapOf<String, Int>() }
@@ -312,12 +318,12 @@ fun MonthScreen(viewModel: MonthViewModel, contentPadding: PaddingValues) {
                     SectionHeader(
                         title = "Renda", icon = Icons.Outlined.Payments, color = MaterialTheme.colorScheme.primary,
                         subtitle = "${detail.incomes.size} entradas · ${Money.format(summary.incomeCents)}",
-                        collapsed = collapsed[ANCHOR_INCOME] == true,
-                        onToggle = { collapsed[ANCHOR_INCOME] = collapsed[ANCHOR_INCOME] != true },
+                        collapsed = isCollapsed(ANCHOR_INCOME),
+                        onToggle = { collapsed[ANCHOR_INCOME] = !isCollapsed(ANCHOR_INCOME) },
                         onAdd = { editingIncome = IncomeEntity(monthId = detail.month.id, personId = null, source = "", amountCents = 0) },
                     )
                 }
-                if (collapsed[ANCHOR_INCOME] != true) {
+                if (!isCollapsed(ANCHOR_INCOME)) {
                     itemsIndexed(detail.incomes, key = { _, it -> "income-${it.id}" }) { index, income ->
                         IncomeRow(
                             income,
@@ -341,8 +347,8 @@ fun MonthScreen(viewModel: MonthViewModel, contentPadding: PaddingValues) {
                             color = color,
                             subtitle = "${list.count { it.isPaid }} de ${list.size} pagos · ${Money.format(total)} de ${Money.format(planned)}",
                             progress = total to planned,
-                            collapsed = collapsed[section.name] == true,
-                            onToggle = { collapsed[section.name] = collapsed[section.name] != true },
+                            collapsed = isCollapsed(section.name),
+                            onToggle = { collapsed[section.name] = !isCollapsed(section.name) },
                             onAdd = {
                                 editingExpense = ExpenseEntity(
                                     monthId = detail.month.id, block = section.newBlock, description = "",
@@ -351,7 +357,7 @@ fun MonthScreen(viewModel: MonthViewModel, contentPadding: PaddingValues) {
                             },
                         )
                     }
-                    if (collapsed[section.name] != true) {
+                    if (!isCollapsed(section.name)) {
                         if (section == Section.PERSONAL) {
                             state.reference.people.forEach { person ->
                                 val personal = list.filter { it.personId == person.id }
@@ -742,12 +748,23 @@ private fun ExpenseRow(
     onClick: () -> Unit,
     onDelete: () -> Unit,
 ) {
-    val dismissState = rememberSwipeToDismissBoxState(confirmValueChange = {
-        if (it == SwipeToDismissBoxValue.EndToStart) onDelete()
-        false
-    })
+    // A quick vertical scroll with a little sideways drift passes the swipe's velocity threshold and
+    // would "dismiss" the row, so only a drag that really travelled 40% of the width deletes.
+    val currentOnDelete by rememberUpdatedState(onDelete)
+    var rowWidth by remember { mutableFloatStateOf(0f) }
+    val stateRef = remember { arrayOfNulls<SwipeToDismissBoxState>(1) }
+    val dismissState = rememberSwipeToDismissBoxState(
+        confirmValueChange = {
+            val dragged = -(stateRef[0]?.requireOffset() ?: 0f)
+            if (it == SwipeToDismissBoxValue.EndToStart && rowWidth > 0f && dragged >= rowWidth * SWIPE_DELETE_FRACTION) currentOnDelete()
+            false
+        },
+        positionalThreshold = { distance -> distance * SWIPE_DELETE_FRACTION },
+    )
+    stateRef[0] = dismissState
     SwipeToDismissBox(
         state = dismissState,
+        modifier = Modifier.onSizeChanged { rowWidth = it.width.toFloat() },
         enableDismissFromStartToEnd = false,
         backgroundContent = {
             Box(
@@ -922,6 +939,7 @@ private fun PaymentMethodsCard(summary: MonthSummary, reference: ReferenceData, 
 }
 
 private const val NO_METHOD = "Sem forma"
+private const val SWIPE_DELETE_FRACTION = 0.4f
 private const val ANCHOR_INCOME = "income"
 private const val ANCHOR_USAGE = "usage"
 private const val ANCHOR_GROUPS = "groups"
