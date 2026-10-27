@@ -105,6 +105,11 @@ import com.controlefinanceiro.app.ui.theme.LocalBlockColors
 import com.controlefinanceiro.app.ui.theme.LocalHeroColors
 import com.controlefinanceiro.app.ui.theme.LocalMoneyColors
 import kotlinx.coroutines.launch
+import com.controlefinanceiro.app.data.db.CardEntity
+import androidx.compose.runtime.withFrameNanos
+import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.foundation.lazy.rememberLazyListState
 import java.time.LocalDate
 
 /** Sections shown in the month, top to bottom. TITHE is listed inside the fixed section. */
@@ -144,6 +149,48 @@ fun MonthScreen(viewModel: MonthViewModel, contentPadding: PaddingValues) {
     var showPicker by remember { mutableStateOf(false) }
     var confirmDeleteMonth by remember { mutableStateOf(false) }
     val collapsed = remember { mutableStateMapOf<String, Boolean>() }
+    val listState = rememberLazyListState()
+    // Where each section starts in the list, filled while the list is built.
+    val anchors = remember { mutableMapOf<String, Int>() }
+    var expenseList by remember { mutableStateOf<ExpenseFilter?>(null) }
+    // The list to show again when the editor opened from it closes.
+    var returnToList by remember { mutableStateOf<ExpenseFilter?>(null) }
+
+    /** Expands the target section if needed and scrolls to it. */
+    fun goTo(target: String) {
+        val section = when {
+            target == ANCHOR_INCOME -> ANCHOR_INCOME
+            target.startsWith("person-") -> Section.PERSONAL.name
+            Section.entries.any { it.name == target } -> target
+            else -> null
+        }
+        section?.let { collapsed[it] = false }
+        scope.launch {
+            withFrameNanos { } // lets the expanded section join the list first
+            anchors[target]?.let { listState.animateScrollToItem(it) }
+        }
+    }
+
+    fun goTo(group: BudgetGroup?) = goTo(
+        when (group) {
+            BudgetGroup.TITHE, BudgetGroup.FIXED -> Section.FIXED.name
+            BudgetGroup.VARIABLE -> Section.COUPLE.name
+            BudgetGroup.INVESTMENT -> Section.INVESTMENT.name
+            null -> Section.EXTRA.name
+        }
+    )
+
+    fun editFromList(expense: ExpenseEntity) {
+        returnToList = expenseList
+        expenseList = null
+        editingExpense = expense
+    }
+
+    fun closeEditor() {
+        editingExpense = null
+        expenseList = returnToList
+        returnToList = null
+    }
 
     fun deleteWithUndo(expense: ExpenseEntity) {
         viewModel.deleteExpense(expense)
@@ -217,26 +264,60 @@ fun MonthScreen(viewModel: MonthViewModel, contentPadding: PaddingValues) {
         } else {
             val blockColors = LocalBlockColors.current
             LazyColumn(
+                state = listState,
                 modifier = Modifier.fillMaxSize().padding(padding),
                 contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 40.dp),
                 verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
-                item("overview") { HeroCard(summary) }
-                item("cards") { CardsCard(summary, state.reference, Modifier.padding(top = 12.dp)) }
-                item("usage") { IncomeUsageCard(summary, Modifier.padding(top = 12.dp)) }
-                item("groups") { GroupsCard(summary, Modifier.padding(top = 12.dp)) }
-                item("couple") { CoupleCard(summary, Modifier.padding(top = 12.dp)) { editingAllowance = it } }
+                // Counts items as they are added, so taps in the overview know where each section starts.
+                var count = 0
+                fun single(key: String, anchor: String? = null, content: @Composable () -> Unit) {
+                    anchor?.let { anchors[it] = count }
+                    item(key) { content() }
+                    count++
+                }
+                fun expenseRows(list: List<ExpenseEntity>, color: Color) {
+                    itemsIndexed(list, key = { _, it -> "e-${it.id}" }) { index, expense ->
+                        ExpenseRow(expense, viewModel.resolvedPlanned(expense), state.reference, color,
+                            shape = groupShape(index, list.size),
+                            onToggle = { viewModel.togglePaid(expense) },
+                            onClick = { editingExpense = expense },
+                            onDelete = { deleteWithUndo(expense) })
+                    }
+                    count += list.size
+                }
+
+                single("overview") {
+                    HeroCard(summary, onIncome = { goTo(ANCHOR_INCOME) }, onBudget = { goTo(ANCHOR_GROUPS) }, onSurplus = { goTo(ANCHOR_USAGE) })
+                }
+                single("cards") {
+                    CardsCard(summary, state.reference, Modifier.padding(top = 12.dp)) { card ->
+                        expenseList = if (card == null) ExpenseFilter.AnyCard else ExpenseFilter.ByCard(card.id, "Cartão ${card.name}")
+                    }
+                }
+                single("usage", ANCHOR_USAGE) { IncomeUsageCard(summary, Modifier.padding(top = 12.dp)) { goTo(ANCHOR_GROUPS) } }
+                single("groups", ANCHOR_GROUPS) { GroupsCard(summary, Modifier.padding(top = 12.dp)) { goTo(it) } }
+                single("couple") {
+                    CoupleCard(
+                        summary, Modifier.padding(top = 12.dp),
+                        onEditAllowance = { editingAllowance = it },
+                        onPerson = { goTo("person-${it.id}") },
+                        onAllowances = { goTo(Section.PERSONAL.name) },
+                        onCouple = { goTo(Section.COUPLE.name) },
+                    )
+                }
 
                 // Income
-                item("income-header") {
+                single("income-header", ANCHOR_INCOME) {
                     SectionHeader(
                         title = "Renda", icon = Icons.Outlined.Payments, color = MaterialTheme.colorScheme.primary,
                         subtitle = "${detail.incomes.size} entradas · ${Money.format(summary.incomeCents)}",
-                        collapsed = collapsed["income"] == true, onToggle = { collapsed["income"] = collapsed["income"] != true },
+                        collapsed = collapsed[ANCHOR_INCOME] == true,
+                        onToggle = { collapsed[ANCHOR_INCOME] = collapsed[ANCHOR_INCOME] != true },
                         onAdd = { editingIncome = IncomeEntity(monthId = detail.month.id, personId = null, source = "", amountCents = 0) },
                     )
                 }
-                if (collapsed["income"] != true) {
+                if (collapsed[ANCHOR_INCOME] != true) {
                     itemsIndexed(detail.incomes, key = { _, it -> "income-${it.id}" }) { index, income ->
                         IncomeRow(
                             income,
@@ -244,6 +325,7 @@ fun MonthScreen(viewModel: MonthViewModel, contentPadding: PaddingValues) {
                             groupShape(index, detail.incomes.size),
                         ) { editingIncome = income }
                     }
+                    count += detail.incomes.size
                 }
 
                 Section.entries.forEach { section ->
@@ -252,7 +334,7 @@ fun MonthScreen(viewModel: MonthViewModel, contentPadding: PaddingValues) {
                     val total = list.sumOf { BudgetCalculator.actual(it) }
                     val planned = if (section == Section.PERSONAL) summary.totalAllowanceCents
                     else list.sumOf { viewModel.resolvedPlanned(it) }
-                    item("header-${section.name}") {
+                    single("header-${section.name}", section.name) {
                         SectionHeader(
                             title = section.title,
                             icon = section.icon,
@@ -274,32 +356,24 @@ fun MonthScreen(viewModel: MonthViewModel, contentPadding: PaddingValues) {
                             state.reference.people.forEach { person ->
                                 val personal = list.filter { it.personId == person.id }
                                 val line = summary.people.firstOrNull { it.person.id == person.id }
-                                item("person-${person.id}") {
+                                single("person-${person.id}", "person-${person.id}") {
                                     PersonSubheader(shortName(person.name), line?.spentCents ?: 0, line?.allowanceCents ?: 0, color)
                                 }
-                                itemsIndexed(personal, key = { _, it -> "e-${it.id}" }) { index, expense ->
-                                    ExpenseRow(expense, viewModel.resolvedPlanned(expense), state.reference, color,
-                                        shape = groupShape(index, personal.size),
-                                        onToggle = { viewModel.togglePaid(expense) },
-                                        onClick = { editingExpense = expense },
-                                        onDelete = { deleteWithUndo(expense) })
-                                }
-                                if (personal.isEmpty()) item("empty-person-${person.id}") { EmptyLine("Nenhum gasto de ${shortName(person.name)}.") }
+                                expenseRows(personal, color)
+                                if (personal.isEmpty()) single("empty-person-${person.id}") { EmptyLine("Nenhum gasto de ${shortName(person.name)}.") }
                             }
                         } else {
-                            itemsIndexed(list, key = { _, it -> "e-${it.id}" }) { index, expense ->
-                                ExpenseRow(expense, viewModel.resolvedPlanned(expense), state.reference, color,
-                                    shape = groupShape(index, list.size),
-                                    onToggle = { viewModel.togglePaid(expense) },
-                                    onClick = { editingExpense = expense },
-                                    onDelete = { deleteWithUndo(expense) })
-                            }
-                            if (list.isEmpty()) item("empty-${section.name}") { EmptyLine("Nenhum lançamento. Toque em + para adicionar.") }
+                            expenseRows(list, color)
+                            if (list.isEmpty()) single("empty-${section.name}") { EmptyLine("Nenhum lançamento. Toque em + para adicionar.") }
                         }
                     }
                 }
 
-                item("methods") { PaymentMethodsCard(summary, state.reference, Modifier.padding(top = 20.dp)) }
+                single("methods") {
+                    PaymentMethodsCard(summary, state.reference, Modifier.padding(top = 20.dp)) { methodId, name ->
+                        expenseList = ExpenseFilter.ByMethod(methodId, name)
+                    }
+                }
             }
         }
     }
@@ -308,9 +382,21 @@ fun MonthScreen(viewModel: MonthViewModel, contentPadding: PaddingValues) {
         ExpenseEditorSheet(
             initial = expense,
             reference = state.reference,
-            onSave = { viewModel.saveExpense(it); editingExpense = null },
-            onDelete = if (expense.id == 0L) null else { e -> editingExpense = null; deleteWithUndo(e) },
-            onDismiss = { editingExpense = null },
+            onSave = { viewModel.saveExpense(it); closeEditor() },
+            onDelete = if (expense.id == 0L) null else { e -> closeEditor(); deleteWithUndo(e) },
+            onDismiss = ::closeEditor,
+        )
+    }
+    expenseList?.let { filter ->
+        ExpenseListSheet(
+            filter = filter,
+            expenses = detail?.expenses.orEmpty().filter(filter::matches),
+            reference = state.reference,
+            plannedOf = viewModel::resolvedPlanned,
+            onToggle = { viewModel.togglePaid(it) },
+            onClick = ::editFromList,
+            onDelete = ::deleteWithUndo,
+            onDismiss = { expenseList = null },
         )
     }
     editingIncome?.let { income ->
@@ -385,7 +471,7 @@ private fun EmptyMonth(modifier: Modifier, loading: Boolean, onCreate: () -> Uni
 
 /** Gradient card at the top: what is left of the income, savings rate and a ring with how much of it is used. */
 @Composable
-private fun HeroCard(summary: MonthSummary) {
+private fun HeroCard(summary: MonthSummary, onIncome: () -> Unit, onBudget: () -> Unit, onSurplus: () -> Unit) {
     val hero = LocalHeroColors.current
     val used = ratioOf(summary.actualCents, summary.incomeCents)
     val ringColor = when {
@@ -401,7 +487,7 @@ private fun HeroCard(summary: MonthSummary) {
             .background(hero.brush)
             .padding(24.dp),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.clickable(onClick = onSurplus), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text("Sobra do mês", style = MaterialTheme.typography.labelLarge, color = hero.muted)
                 Spacer(Modifier.height(4.dp))
@@ -425,27 +511,29 @@ private fun HeroCard(summary: MonthSummary) {
         }
         Spacer(Modifier.height(20.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            HeroTile("Renda", summary.incomeCents, Modifier.weight(1f))
-            HeroTile("Previsto", summary.plannedCents, Modifier.weight(1f))
-            HeroTile("Realizado", summary.actualCents, Modifier.weight(1f))
+            HeroTile("Renda", summary.incomeCents, Modifier.weight(1f), onIncome)
+            HeroTile("Previsto", summary.plannedCents, Modifier.weight(1f), onBudget)
+            HeroTile("Realizado", summary.actualCents, Modifier.weight(1f), onBudget)
         }
     }
 }
 
 @Composable
-private fun HeroTile(label: String, cents: Long, modifier: Modifier) {
+private fun HeroTile(label: String, cents: Long, modifier: Modifier, onClick: () -> Unit) {
     val hero = LocalHeroColors.current
     LabelValue(
         label, cents,
-        modifier.clip(MaterialTheme.shapes.medium).background(hero.tile).padding(horizontal = 12.dp, vertical = 10.dp),
+        modifier.clip(MaterialTheme.shapes.medium).background(hero.tile).clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 10.dp),
         labelColor = hero.muted, valueColor = hero.content,
     )
 }
 
 /** Same two checks as the spreadsheet summary: actual and planned against the income, without "Fora do orçamento". */
 @Composable
-private fun IncomeUsageCard(summary: MonthSummary, modifier: Modifier) {
-    SectionCard(modifier, title = "Renda do mês", subtitle = "Sem contar os gastos fora do orçamento") {
+private fun IncomeUsageCard(summary: MonthSummary, modifier: Modifier, onClick: () -> Unit) {
+    SectionCard(modifier.clip(MaterialTheme.shapes.large).clickable(onClick = onClick), title = "Renda do mês",
+        subtitle = "Sem contar os gastos fora do orçamento") {
         UsageLine("Uso da renda", summary.actualCents, summary.incomeCents)
         Spacer(Modifier.height(18.dp))
         UsageLine("Previsto vs renda", summary.plannedCents, summary.incomeCents)
@@ -472,35 +560,37 @@ private fun UsageLine(label: String, used: Long, income: Long) {
 }
 
 @Composable
-private fun GroupsCard(summary: MonthSummary, modifier: Modifier) {
+private fun GroupsCard(summary: MonthSummary, modifier: Modifier, onGroup: (BudgetGroup?) -> Unit) {
     val blocks = LocalBlockColors.current
     SectionCard(modifier, title = "Orçamento por grupo", subtitle = "Realizado de previsto") {
         summary.groups.forEachIndexed { index, line ->
             val color = line.group.color(blocks)
-            if (index > 0) Spacer(Modifier.height(18.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                IconBadge(line.group.icon(), color)
-                Spacer(Modifier.width(12.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(line.group.label, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
-                    Text(
-                        "Recomendado ${Money.format(line.recommendedCents)}",
-                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+            if (index > 0) Spacer(Modifier.height(10.dp))
+            Column(Modifier.clickable { onGroup(line.group) }.padding(vertical = 4.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconBadge(line.group.icon(), color)
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(line.group.label, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
+                        Text(
+                            "Recomendado ${Money.format(line.recommendedCents)}",
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Column(horizontalAlignment = Alignment.End) {
+                        MoneyText(line.actualCents, style = MaterialTheme.typography.titleSmall)
+                        Text("de ${Money.format(line.plannedCents)}", style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                 }
-                Column(horizontalAlignment = Alignment.End) {
-                    MoneyText(line.actualCents, style = MaterialTheme.typography.titleSmall)
-                    Text("de ${Money.format(line.plannedCents)}", style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
+                Spacer(Modifier.height(10.dp))
+                BudgetBar(line.actualCents, line.plannedCents, color)
             }
-            Spacer(Modifier.height(10.dp))
-            BudgetBar(line.actualCents, line.plannedCents, color)
         }
         Spacer(Modifier.height(18.dp))
         Row(
             Modifier.fillMaxWidth().clip(MaterialTheme.shapes.medium).background(MaterialTheme.colorScheme.surfaceContainer)
-                .padding(horizontal = 14.dp, vertical = 12.dp),
+                .clickable { onGroup(null) }.padding(horizontal = 14.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             IconBadge(Icons.Outlined.MoreHoriz, blocks.extra, size = 32.dp)
@@ -512,7 +602,14 @@ private fun GroupsCard(summary: MonthSummary, modifier: Modifier) {
 }
 
 @Composable
-private fun CoupleCard(summary: MonthSummary, modifier: Modifier, onEditAllowance: (PersonEntity) -> Unit) {
+private fun CoupleCard(
+    summary: MonthSummary,
+    modifier: Modifier,
+    onEditAllowance: (PersonEntity) -> Unit,
+    onPerson: (PersonEntity) -> Unit,
+    onAllowances: () -> Unit,
+    onCouple: () -> Unit,
+) {
     val purple = LocalBlockColors.current.personal
     SectionCard(
         modifier,
@@ -522,15 +619,20 @@ private fun CoupleCard(summary: MonthSummary, modifier: Modifier, onEditAllowanc
         summary.people.forEachIndexed { index, line ->
             if (index > 0) Spacer(Modifier.height(20.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Avatar(line.person.name, purple)
-                Spacer(Modifier.width(12.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(shortName(line.person.name), style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
-                    Text(
-                        "${Money.formatPercent(line.incomeShare)} da renda · casal ${Money.format(line.coupleShareCents)}",
-                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1, overflow = TextOverflow.Ellipsis,
-                    )
+                Row(
+                    Modifier.weight(1f).clip(MaterialTheme.shapes.medium).clickable { onPerson(line.person) },
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Avatar(line.person.name, purple)
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(shortName(line.person.name), style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            "${Money.formatPercent(line.incomeShare)} da renda · casal ${Money.format(line.coupleShareCents)}",
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        )
+                    }
                 }
                 Row(
                     Modifier.clip(CircleShape).background(purple.copy(alpha = 0.12f))
@@ -558,17 +660,17 @@ private fun CoupleCard(summary: MonthSummary, modifier: Modifier, onEditAllowanc
                 .padding(14.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Row {
+            Row(Modifier.clickable(onClick = onAllowances)) {
                 Text("Total das mesadas", Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
                 MoneyText(summary.totalAllowanceCents, style = MaterialTheme.typography.titleSmall)
             }
-            Row {
+            Row(Modifier.clickable(onClick = onAllowances)) {
                 Text("Gasto / saldo", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text("${Money.format(summary.totalPersonalSpentCents)} / ", style = MaterialTheme.typography.bodyMedium)
                 MoneyText(summary.totalAllowanceCents - summary.totalPersonalSpentCents, style = MaterialTheme.typography.bodyMedium, colored = true)
             }
-            Row {
+            Row(Modifier.clickable(onClick = onCouple)) {
                 Text("Contas do casal no mês", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text(Money.format(summary.coupleActualCents), style = MaterialTheme.typography.bodyMedium)
@@ -720,7 +822,7 @@ private fun EmptyLine(text: String) {
 
 /** Expected (planned) against spent (paid) on each card this month. */
 @Composable
-private fun CardsCard(summary: MonthSummary, reference: ReferenceData, modifier: Modifier) {
+private fun CardsCard(summary: MonthSummary, reference: ReferenceData, modifier: Modifier, onCard: (CardEntity?) -> Unit) {
     val color = MaterialTheme.colorScheme.tertiary
     SectionCard(modifier, title = "Cartões", subtitle = "Gasto de esperado no mês") {
         if (reference.cards.isEmpty()) {
@@ -735,26 +837,28 @@ private fun CardsCard(summary: MonthSummary, reference: ReferenceData, modifier:
             .sortedByDescending { (_, values) -> values.first }
         lines.forEachIndexed { index, (card, values) ->
             val (expected, spent) = values
-            if (index > 0) Spacer(Modifier.height(16.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                IconBadge(Icons.Outlined.CreditCard, color, size = 36.dp)
-                Spacer(Modifier.width(12.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(card.name, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium,
-                        maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(
-                        cardStatus(expected, spent), style = MaterialTheme.typography.bodySmall,
-                        color = if (spent > expected) LocalMoneyColors.current.negative else MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+            if (index > 0) Spacer(Modifier.height(8.dp))
+            Column(Modifier.clickable { onCard(card) }.padding(vertical = 4.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconBadge(Icons.Outlined.CreditCard, color, size = 36.dp)
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(card.name, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(
+                            cardStatus(expected, spent), style = MaterialTheme.typography.bodySmall,
+                            color = if (spent > expected) LocalMoneyColors.current.negative else MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Column(horizontalAlignment = Alignment.End) {
+                        MoneyText(spent, style = MaterialTheme.typography.titleSmall)
+                        Text("de ${Money.format(expected)}", style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                 }
-                Column(horizontalAlignment = Alignment.End) {
-                    MoneyText(spent, style = MaterialTheme.typography.titleSmall)
-                    Text("de ${Money.format(expected)}", style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
+                Spacer(Modifier.height(8.dp))
+                BudgetBar(spent, expected, color, height = 6.dp)
             }
-            Spacer(Modifier.height(8.dp))
-            BudgetBar(spent, expected, color, height = 6.dp)
         }
         if (lines.size > 1) {
             val expected = lines.sumOf { it.second.first }
@@ -762,7 +866,7 @@ private fun CardsCard(summary: MonthSummary, reference: ReferenceData, modifier:
             Spacer(Modifier.height(18.dp))
             Row(
                 Modifier.fillMaxWidth().clip(MaterialTheme.shapes.medium).background(MaterialTheme.colorScheme.surfaceContainer)
-                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                    .clickable { onCard(null) }.padding(horizontal = 14.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text("Total nos cartões", Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
@@ -782,21 +886,112 @@ private fun cardStatus(expected: Long, spent: Long): String = when {
 }
 
 @Composable
-private fun PaymentMethodsCard(summary: MonthSummary, reference: ReferenceData, modifier: Modifier) {
+private fun PaymentMethodsCard(summary: MonthSummary, reference: ReferenceData, modifier: Modifier, onMethod: (Long?, String) -> Unit) {
     val color = MaterialTheme.colorScheme.secondary
-    SectionCard(modifier, title = "Por forma de pagamento", subtitle = "Realizado de previsto") {
+    SectionCard(modifier, title = "Por forma de pagamento", subtitle = "Realizado de previsto · toque para ver os itens") {
         summary.byPaymentMethod.entries.sortedByDescending { it.value.first }.forEachIndexed { index, (methodId, values) ->
-            if (index > 0) Spacer(Modifier.height(14.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                IconBadge(Icons.Outlined.CreditCard, color, size = 32.dp)
-                Spacer(Modifier.width(12.dp))
-                Text(reference.paymentMethods.firstOrNull { it.id == methodId }?.name ?: "Sem forma", Modifier.weight(1f),
-                    style = MaterialTheme.typography.bodyMedium)
-                Text("${Money.format(values.second)} de ${Money.format(values.first)}", style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            val name = reference.paymentMethods.firstOrNull { it.id == methodId }?.name
+            if (index > 0) Spacer(Modifier.height(6.dp))
+            Column(
+                Modifier.clickable { onMethod(methodId, name ?: NO_METHOD) }
+                    .padding(vertical = 6.dp),
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconBadge(Icons.Outlined.CreditCard, if (name == null) MaterialTheme.colorScheme.primary else color, size = 32.dp)
+                    Spacer(Modifier.width(12.dp))
+                    if (name == null) {
+                        Column(Modifier.weight(1f)) {
+                            Text(NO_METHOD, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.primary)
+                            Text("Toque para definir a forma", style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    } else {
+                        Text(name, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+                    }
+                    Text("${Money.format(values.second)} de ${Money.format(values.first)}", style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, null, Modifier.size(20.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Spacer(Modifier.height(8.dp))
+                BudgetBar(values.second, values.first, color, height = 4.dp)
             }
-            Spacer(Modifier.height(8.dp))
-            BudgetBar(values.second, values.first, color, height = 4.dp)
+        }
+    }
+}
+
+private const val NO_METHOD = "Sem forma"
+private const val ANCHOR_INCOME = "income"
+private const val ANCHOR_USAGE = "usage"
+private const val ANCHOR_GROUPS = "groups"
+
+/** Cross-cutting lists opened from the overview: one card, all cards or one payment method. */
+private sealed interface ExpenseFilter {
+    val title: String
+    fun matches(expense: ExpenseEntity): Boolean
+
+    data class ByCard(val cardId: Long, override val title: String) : ExpenseFilter {
+        override fun matches(expense: ExpenseEntity) = expense.cardId == cardId
+    }
+
+    data object AnyCard : ExpenseFilter {
+        override val title = "Todos os cartões"
+        override fun matches(expense: ExpenseEntity) = expense.cardId != null
+    }
+
+    /** A null [methodId] lists the expenses that still have no payment method. */
+    data class ByMethod(val methodId: Long?, override val title: String) : ExpenseFilter {
+        override fun matches(expense: ExpenseEntity) = expense.paymentMethodId == methodId
+    }
+}
+
+/** Bottom sheet with the month's expenses that match [filter]; tapping one opens the editor. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ExpenseListSheet(
+    filter: ExpenseFilter,
+    expenses: List<ExpenseEntity>,
+    reference: ReferenceData,
+    plannedOf: (ExpenseEntity) -> Long,
+    onToggle: (ExpenseEntity) -> Unit,
+    onClick: (ExpenseEntity) -> Unit,
+    onDelete: (ExpenseEntity) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val blocks = LocalBlockColors.current
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
+        Column(Modifier.padding(horizontal = 20.dp)) {
+            Text(filter.title, style = MaterialTheme.typography.titleLarge)
+            Text(
+                "${expenses.size} ${if (expenses.size == 1) "lançamento" else "lançamentos"} · " +
+                    "${Money.format(expenses.sumOf { BudgetCalculator.actual(it) })} " +
+                    "de ${Money.format(expenses.sumOf(plannedOf))}",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            if (filter is ExpenseFilter.ByMethod && filter.methodId == null && expenses.isNotEmpty()) {
+                Spacer(Modifier.height(8.dp))
+                Text("Toque num item para escolher a forma de pagamento.", style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.primary)
+            }
+            Spacer(Modifier.height(12.dp))
+        }
+        LazyColumn(
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 32.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            if (expenses.isEmpty()) {
+                val text = if (filter is ExpenseFilter.ByMethod && filter.methodId == null) "Todos os lançamentos já têm forma de pagamento."
+                else "Nenhum lançamento neste mês."
+                item("empty") { EmptyLine(text) }
+            }
+            itemsIndexed(expenses, key = { _, it -> "list-${it.id}" }) { index, expense ->
+                ExpenseRow(expense, plannedOf(expense), reference, blocks.of(expense.block),
+                    shape = groupShape(index, expenses.size),
+                    onToggle = { onToggle(expense) },
+                    onClick = { onClick(expense) },
+                    onDelete = { onDelete(expense) })
+            }
         }
     }
 }
