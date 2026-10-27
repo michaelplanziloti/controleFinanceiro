@@ -134,6 +134,9 @@ interface MonthDao {
     @Update
     suspend fun updateExpense(expense: ExpenseEntity)
 
+    @Update
+    suspend fun updateExpenses(expenses: List<ExpenseEntity>)
+
     @Delete
     suspend fun deleteExpense(expense: ExpenseEntity)
 

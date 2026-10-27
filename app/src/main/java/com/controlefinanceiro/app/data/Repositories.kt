@@ -148,6 +148,7 @@ class FinanceRepository(private val db: AppDatabase) {
     suspend fun deleteExpense(expense: ExpenseEntity) = months.deleteExpense(expense)
 
     suspend fun togglePaid(expense: ExpenseEntity) = months.updateExpense(expense.copy(isPaid = !expense.isPaid))
+    suspend fun updateExpenses(expenses: List<ExpenseEntity>) = months.updateExpenses(expenses)
 
     suspend fun addPerson(userId: Long, name: String, order: Int) =
         ref.insertPerson(PersonEntity(userId = userId, name = name.trim(), sortOrder = order))

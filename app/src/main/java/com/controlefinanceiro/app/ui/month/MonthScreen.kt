@@ -25,6 +25,7 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.outlined.TrendingUp
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.outlined.CalendarMonth
@@ -42,6 +43,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -50,6 +52,9 @@ import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -161,6 +166,8 @@ fun MonthScreen(viewModel: MonthViewModel, contentPadding: PaddingValues) {
     var expenseList by remember { mutableStateOf<ExpenseFilter?>(null) }
     // The list to show again when the editor opened from it closes.
     var returnToList by remember { mutableStateOf<ExpenseFilter?>(null) }
+    // Open expenses of a card waiting for the "which day was it paid" answer.
+    var payingAll by remember { mutableStateOf<Pair<ExpenseFilter, List<ExpenseEntity>>?>(null) }
 
     /** Expands the target section if needed and scrolls to it. */
     fun goTo(target: String) {
@@ -402,7 +409,26 @@ fun MonthScreen(viewModel: MonthViewModel, contentPadding: PaddingValues) {
             onToggle = { viewModel.togglePaid(it) },
             onClick = ::editFromList,
             onDelete = ::deleteWithUndo,
+            onPayAll = { open -> payingAll = filter to open },
             onDismiss = { expenseList = null },
+        )
+    }
+    payingAll?.let { (filter, open) ->
+        PayAllDialog(
+            title = filter.title,
+            count = open.size,
+            totalCents = open.sumOf { viewModel.resolvedPlanned(it) },
+            onConfirm = { onDay15 ->
+                viewModel.payAll(open, onDay15)
+                payingAll = null
+                expenseList = null
+                scope.launch {
+                    val label = if (open.size == 1) "1 item baixado" else "${open.size} itens baixados"
+                    val result = snackbar.showSnackbar("$label · ${filter.title}", "Desfazer", duration = SnackbarDuration.Long)
+                    if (result == SnackbarResult.ActionPerformed) viewModel.restoreExpenses(open)
+                }
+            },
+            onDismiss = { payingAll = null },
         )
     }
     editingIncome?.let { income ->
@@ -975,9 +1001,12 @@ private fun ExpenseListSheet(
     onToggle: (ExpenseEntity) -> Unit,
     onClick: (ExpenseEntity) -> Unit,
     onDelete: (ExpenseEntity) -> Unit,
+    onPayAll: (List<ExpenseEntity>) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val blocks = LocalBlockColors.current
+    val isCard = filter is ExpenseFilter.ByCard || filter is ExpenseFilter.AnyCard
+    val open = expenses.filter { !it.isPaid }
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         Column(Modifier.padding(horizontal = 20.dp)) {
             Text(filter.title, style = MaterialTheme.typography.titleLarge)
@@ -991,6 +1020,19 @@ private fun ExpenseListSheet(
                 Spacer(Modifier.height(8.dp))
                 Text("Toque num item para escolher a forma de pagamento.", style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.primary)
+            }
+            if (isCard && expenses.isNotEmpty()) {
+                Spacer(Modifier.height(12.dp))
+                if (open.isEmpty()) {
+                    Text("Tudo pago neste cartão.", style = MaterialTheme.typography.bodyMedium,
+                        color = LocalMoneyColors.current.positive)
+                } else {
+                    FilledTonalButton(onClick = { onPayAll(open) }, modifier = Modifier.fillMaxWidth()) {
+                        Icon(Icons.Default.DoneAll, null, Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text(if (open.size == 1) "Dar baixa no item em aberto" else "Dar baixa nos ${open.size} itens em aberto")
+                    }
+                }
             }
             Spacer(Modifier.height(12.dp))
         }
@@ -1013,3 +1055,34 @@ private fun ExpenseListSheet(
         }
     }
 }
+
+/** Asks on which day a card's open items were paid; each one is then paid with its planned value on that day. */
+@Composable
+private fun PayAllDialog(title: String, count: Int, totalCents: Long, onConfirm: (onDay15: Boolean) -> Unit, onDismiss: () -> Unit) {
+    var onDay15 by remember { mutableStateOf(LocalDate.now().dayOfMonth <= 15) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = { Icon(Icons.Default.DoneAll, null) },
+        title = { Text("Dar baixa") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                Text(
+                    "$title: ${if (count == 1) "o item em aberto fica pago" else "os $count itens em aberto ficam pagos"} com o valor " +
+                        "esperado de cada um (${Money.format(totalCents)} no total). Quando foi pago?"
+                )
+                SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                    listOf(true to "Dia 15", false to "Dia 30").forEachIndexed { index, (day15, label) ->
+                        SegmentedButton(
+                            selected = onDay15 == day15,
+                            onClick = { onDay15 = day15 },
+                            shape = SegmentedButtonDefaults.itemShape(index, 2),
+                        ) { Text(label) }
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = { onConfirm(onDay15) }) { Text("Dar baixa") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar") } },
+    )
+}
+

@@ -118,6 +118,23 @@ class MonthViewModel(private val userId: Long, private val repo: FinanceReposito
     fun restoreExpense(expense: ExpenseEntity) = viewModelScope.launch { repo.restoreExpense(expense) }
     fun togglePaid(expense: ExpenseEntity) = viewModelScope.launch { repo.togglePaid(expense) }
 
+    /** Marks every expense paid with its planned value on day 15 or day 30 (the other day is cleared). */
+    fun payAll(expenses: List<ExpenseEntity>, onDay15: Boolean) = viewModelScope.launch {
+        repo.updateExpenses(
+            expenses.map {
+                val planned = resolvedPlanned(it)
+                it.copy(
+                    paidDay15Cents = if (onDay15) planned else 0,
+                    paidDay30Cents = if (onDay15) 0 else planned,
+                    isPaid = true,
+                )
+            }
+        )
+    }
+
+    /** Puts back expenses exactly as they were (undo of [payAll]). */
+    fun restoreExpenses(expenses: List<ExpenseEntity>) = viewModelScope.launch { repo.updateExpenses(expenses) }
+
     fun saveIncome(income: IncomeEntity) = viewModelScope.launch { repo.saveIncome(income) }
     fun deleteIncome(income: IncomeEntity) = viewModelScope.launch { repo.deleteIncome(income) }
 
