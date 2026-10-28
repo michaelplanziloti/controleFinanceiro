@@ -197,7 +197,7 @@ class FinanceRepository(private val db: AppDatabase, private val onMonthChanged:
 
     suspend fun userIds(): List<Long> = db.userDao().ids()
     suspend fun months(userId: Long): List<MonthEntity> = months.all(userId)
-    suspend fun markSynced(monthId: Long, sheetVersion: Long) = months.markSynced(monthId, sheetVersion)
+    suspend fun markSent(monthId: Long, sheetVersion: Long) = months.markSent(monthId, sheetVersion)
 
     /**
      * Replaces the month with what its spreadsheet tab has (the sheet wins) and marks it in sync.
@@ -240,8 +240,8 @@ class FinanceRepository(private val db: AppDatabase, private val onMonthChanged:
         }
         months.insertExpenses(expenses)
         months.markSynced(monthId, sheet.editedAt)
-        // Tabs never edited since the script was installed have no time: use the download time.
-        months.markUpdatedInSheet(monthId, sheet.editedAt.takeIf { it > 0 } ?: System.currentTimeMillis())
+        // Same time and origin the tab shows in B3 (an old script without times: the download time).
+        months.markUpdated(monthId, sheet.editedAt.takeIf { it > 0 } ?: System.currentTimeMillis(), inSheet = !sheet.lastChangeFromApp)
         monthId
     }
 

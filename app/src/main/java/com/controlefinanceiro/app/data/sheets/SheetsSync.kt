@@ -93,7 +93,7 @@ class SheetsSyncWorker(context: Context, private val params: WorkerParameters) :
             val reply = SheetsClient.post(config.url, SheetsPayload.build(snapshot, config.key))
             when {
                 reply.ok -> {
-                    container.finance.markSynced(month.id, reply.editedAt)
+                    container.finance.markSent(month.id, reply.editedAt)
                     status("$tab enviado às ${SheetsSync.now()}")
                     Result.success()
                 }

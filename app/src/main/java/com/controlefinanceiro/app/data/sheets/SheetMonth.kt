@@ -11,6 +11,8 @@ data class SheetMonth(
     val year: Int,
     val month: Int,
     val editedAt: Long,
+    /** True when the tab's last change was a send from the app ("pelo app"). */
+    val lastChangeFromApp: Boolean,
     val incomes: List<Income>,
     val allowances: List<Allowance>,
     val expenses: List<Expense>,
@@ -46,6 +48,7 @@ object SheetsReader {
         year = tab.year,
         month = tab.month,
         editedAt = json.optLong("editedAt", tab.editedAt),
+        lastChangeFromApp = json.optString("origem") == "pelo app",
         incomes = json.getJSONArray("incomes").objects().map {
             SheetMonth.Income(it.text("source").orEmpty(), it.text("person"), it.cents("amount"))
         },

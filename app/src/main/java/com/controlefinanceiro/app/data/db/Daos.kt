@@ -110,8 +110,12 @@ interface MonthDao {
     @Query("UPDATE months SET dirty = 1, updated_at = :now, updated_in_sheet = 0 WHERE id = :id")
     suspend fun markDirty(id: Long, now: Long = System.currentTimeMillis())
 
-    @Query("UPDATE months SET updated_at = :at, updated_in_sheet = 1 WHERE id = :id")
-    suspend fun markUpdatedInSheet(id: Long, at: Long)
+    @Query("UPDATE months SET updated_at = :at, updated_in_sheet = :inSheet WHERE id = :id")
+    suspend fun markUpdated(id: Long, at: Long, inSheet: Boolean)
+
+    /** After a send: the app and the tab now show the same time, the one the script recorded. */
+    @Query("UPDATE months SET dirty = 0, sheet_version = :version, updated_at = :version, updated_in_sheet = 0 WHERE id = :id")
+    suspend fun markSent(id: Long, version: Long)
 
     @Query("UPDATE months SET dirty = 0, sheet_version = :version WHERE id = :id")
     suspend fun markSynced(id: Long, version: Long)

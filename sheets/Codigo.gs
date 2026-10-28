@@ -6,7 +6,8 @@
  * - doGet: devolve as abas de mês e o conteúdo de uma delas, para o app baixar.
  * - onEdit: anota quando cada aba de mês foi editada na planilha. O app só sobrescreve uma
  *   aba se já tiver visto a última edição dela; senão ele baixa a planilha primeiro.
- * Cada aba de mês mostra em B3 a data da última atualização e de onde ela veio.
+ * Cada aba de mês mostra em B3 a data da última atualização e de onde ela veio, com o mesmo
+ * horário que o app mostra para o mês.
  *
  * Instalação: no app, em Ajustes > Planilha Google > Como instalar o script na planilha.
  */
@@ -23,6 +24,8 @@ const LINHAS_MESADAS = 2;
 const PRIMEIRA_LINHA = 30;
 const FORMULA_DIZIMO = '=$D$11*Config!$C$6';
 const CELULA_ATUALIZACAO = 'B3';
+const ORIGEM_APP = 'pelo app';
+const ORIGEM_PLANILHA = 'na planilha';
 
 // Coluna inicial e campos de cada bloco, na ordem das colunas da aba.
 const BLOCOS = {
@@ -44,9 +47,7 @@ function gerarChave() {
 function onEdit(e) {
   const aba = e.range.getSheet();
   if (!NOME_DE_MES.test(aba.getName()) || e.range.getA1Notation() === CELULA_ATUALIZACAO) return;
-  const agora = Date.now();
-  marcarEdicao(aba.getName(), agora);
-  carimbar(aba, agora, 'na planilha');
+  marcarEdicao(aba, Date.now(), ORIGEM_PLANILHA);
 }
 
 function doPost(e) {
@@ -66,8 +67,7 @@ function doPost(e) {
       }
       const aba = preencherMes(planilha, dados);
       const agora = Date.now();
-      marcarEdicao(aba.getName(), agora);
-      carimbar(aba, agora, 'pelo app');
+      marcarEdicao(aba, agora, ORIGEM_APP);
       return resposta({ ok: true, aba: aba.getName(), editedAt: agora });
     } finally {
       trava.releaseLock();
@@ -91,13 +91,13 @@ function doGet(e) {
     if (p.aba) {
       const aba = planilha.getSheetByName(p.aba);
       if (!aba || !NOME_DE_MES.test(p.aba)) return resposta({ ok: false, erro: 'Aba não encontrada: ' + p.aba });
-      return resposta(Object.assign({ ok: true, aba: p.aba, editedAt: edicao(p.aba) }, lerMes(aba)));
+      return resposta(Object.assign({ ok: true, aba: p.aba, editedAt: edicao(p.aba), origem: origem(p.aba) }, lerMes(aba)));
     }
-    const abas = planilha.getSheets().map(function (aba) { return aba.getName(); }).filter(function (nome) {
-      return NOME_DE_MES.test(nome);
-    }).map(function (nome) {
+    const abas = planilha.getSheets().filter(function (aba) { return NOME_DE_MES.test(aba.getName()); }).map(function (aba) {
+      datarSeFaltar(aba);
+      const nome = aba.getName();
       const m = NOME_DE_MES.exec(nome);
-      return { aba: nome, year: 2000 + Number(m[2]), month: ABREVIACOES.indexOf(m[1]) + 1, editedAt: edicao(nome) };
+      return { aba: nome, year: 2000 + Number(m[2]), month: ABREVIACOES.indexOf(m[1]) + 1, editedAt: edicao(nome), origem: origem(nome) };
     });
     return resposta({ ok: true, abas: abas });
   } catch (erro) {
@@ -122,15 +122,41 @@ function edicao(nome) {
   return Number(PropertiesService.getDocumentProperties().getProperty('editado:' + nome) || 0);
 }
 
-function marcarEdicao(nome, quando) {
-  PropertiesService.getDocumentProperties().setProperty('editado:' + nome, String(quando));
+function origem(nome) {
+  return PropertiesService.getDocumentProperties().getProperty('origem:' + nome) || ORIGEM_PLANILHA;
+}
+
+/** Guarda quando e por onde a aba mudou e mostra isso em B3. */
+function marcarEdicao(aba, quando, deOnde) {
+  const props = PropertiesService.getDocumentProperties();
+  props.setProperty('editado:' + aba.getName(), String(quando));
+  props.setProperty('origem:' + aba.getName(), deOnde);
+  carimbar(aba, quando, deOnde);
+}
+
+/**
+ * Abas que ainda não têm data (nunca mudaram desde que o script foi instalado) ganham a hora de
+ * agora; abas com data registrada mas B3 apagada têm a B3 escrita de novo.
+ */
+function datarSeFaltar(aba) {
+  const nome = aba.getName();
+  if (edicao(nome) === 0) {
+    marcarEdicao(aba, Date.now(), ORIGEM_PLANILHA);
+  } else if (String(aba.getRange(CELULA_ATUALIZACAO).getValue()).trim() === '') {
+    carimbar(aba, edicao(nome), origem(nome));
+  }
 }
 
 /** Escreve em B3 algo como "Última atualização: 28/10/2026 15:34 (pelo app)". */
-function carimbar(aba, quando, origem) {
+function carimbar(aba, quando, deOnde) {
   const data = Utilities.formatDate(new Date(quando), Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm');
-  aba.getRange(CELULA_ATUALIZACAO).setValue('Última atualização: ' + data + ' (' + origem + ')')
+  aba.getRange(CELULA_ATUALIZACAO).setValue('Última atualização: ' + data + ' (' + deOnde + ')')
     .setFontStyle('italic').setFontColor('#6b7280');
+}
+
+/** Para rodar no editor: escreve a data em todas as abas de mês de uma vez. */
+function atualizarDatas() {
+  SpreadsheetApp.getActive().getSheets().filter(function (aba) { return NOME_DE_MES.test(aba.getName()); }).forEach(datarSeFaltar);
 }
 
 /** Sem base, o app nunca baixou o mês: só pode escrever se a aba estiver vazia. */

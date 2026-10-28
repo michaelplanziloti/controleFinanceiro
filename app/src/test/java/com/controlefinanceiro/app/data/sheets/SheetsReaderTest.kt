@@ -19,7 +19,7 @@ class SheetsReaderTest {
     fun readsAMonthTab() {
         val json = JSONObject(
             """
-            {"ok":true,"aba":"Nov26","editedAt":42,
+            {"ok":true,"aba":"Nov26","editedAt":42,"origem":"pelo app",
              "incomes":[{"source":"j&j","person":"julia","amount":3647},{"source":"Bônus","person":null,"amount":0.1}],
              "allowances":[{"person":"Michael","amount":841.5}],
              "expenses":[
@@ -32,6 +32,7 @@ class SheetsReaderTest {
         )
         val month = SheetsReader.month(json, SheetTab("Nov26", 2026, 11, 0))
         assertEquals(42, month.editedAt)
+        assertTrue(month.lastChangeFromApp)
         assertEquals(SheetMonth.Income("j&j", "julia", 364_700), month.incomes[0])
         assertEquals(SheetMonth.Income("Bônus", null, 10), month.incomes[1])
         assertEquals(listOf(SheetMonth.Allowance("Michael", 84_150)), month.allowances)

@@ -523,7 +523,7 @@ private fun EmptyMonth(modifier: Modifier, loading: Boolean, onCreate: () -> Uni
     }
 }
 
-/** "Atualizado em 28/10/2026 às 15:34 · na planilha" above the month. */
+/** Same text as cell B3 of the month's tab: "Última atualização: 28/10/2026 15:34 (na planilha)". */
 @Composable
 private fun UpdatedLine(at: Long, inSheet: Boolean) {
     val time = Instant.ofEpochMilli(at).atZone(ZoneId.systemDefault())
@@ -531,13 +531,13 @@ private fun UpdatedLine(at: Long, inSheet: Boolean) {
         Icon(Icons.Outlined.Update, null, Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(Modifier.width(6.dp))
         Text(
-            "Atualizado em ${time.format(UPDATED_FORMAT)} · ${if (inSheet) "na planilha" else "no app"}",
+            "Última atualização: ${time.format(UPDATED_FORMAT)} (${if (inSheet) "na planilha" else "pelo app"})",
             style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
 }
 
-private val UPDATED_FORMAT = DateTimeFormatter.ofPattern("dd/MM/yyyy 'às' HH:mm")
+private val UPDATED_FORMAT = DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm")
 
 /** Gradient card at the top: what is left of the income, savings rate and a ring with how much of it is used. */
 @Composable
