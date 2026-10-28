@@ -14,6 +14,8 @@ import androidx.room.PrimaryKey
  * months 1─N incomes, allowances, expenses
  * people 1─N incomes, allowances, expenses (personal block)
  * cards 1─N expenses (optional link, e.g. "Santander")
+ * subcategories 1─N expenses (the month's row of a budget like "Mercado")
+ * expenses 1─N subcategory_items (each purchase that adds up in that row)
  */
 
 @Entity(tableName = "users", indices = [Index(value = ["email"], unique = true)])
@@ -71,6 +73,60 @@ data class CardEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     @ColumnInfo(name = "user_id") val userId: Long,
     val name: String,
+)
+
+/**
+ * A budget filled little by little, like "Mercado": a monthly target in one block. Every month has a
+ * row for it (an expense linked by subcategory_id) whose paid values are the sum of its items.
+ */
+@Entity(
+    tableName = "subcategories",
+    foreignKeys = [
+        ForeignKey(entity = UserEntity::class, parentColumns = ["id"], childColumns = ["user_id"], onDelete = ForeignKey.CASCADE),
+        ForeignKey(entity = CategoryEntity::class, parentColumns = ["id"], childColumns = ["category_id"], onDelete = ForeignKey.SET_NULL),
+        ForeignKey(entity = PaymentMethodEntity::class, parentColumns = ["id"], childColumns = ["payment_method_id"], onDelete = ForeignKey.SET_NULL),
+        ForeignKey(entity = CardEntity::class, parentColumns = ["id"], childColumns = ["card_id"], onDelete = ForeignKey.SET_NULL),
+        ForeignKey(entity = PersonEntity::class, parentColumns = ["id"], childColumns = ["person_id"], onDelete = ForeignKey.SET_NULL),
+    ],
+    indices = [
+        Index("user_id"), Index(value = ["user_id", "name"], unique = true), Index("category_id"),
+        Index("payment_method_id"), Index("card_id"), Index("person_id"),
+    ],
+)
+data class SubcategoryEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    @ColumnInfo(name = "user_id") val userId: Long,
+    val name: String,
+    val block: ExpenseBlock,
+    /** Monthly target given to new months' rows. */
+    @ColumnInfo(name = "planned_cents") val plannedCents: Long,
+    @ColumnInfo(name = "category_id") val categoryId: Long? = null,
+    @ColumnInfo(name = "payment_method_id") val paymentMethodId: Long? = null,
+    @ColumnInfo(name = "card_id") val cardId: Long? = null,
+    /** Whose allowance it uses, for the PERSONAL block. */
+    @ColumnInfo(name = "person_id") val personId: Long? = null,
+    /** Shown in the "Acompanhamento" card at the top of the month. */
+    @ColumnInfo(name = "in_tracker", defaultValue = "0") val inTracker: Boolean = false,
+)
+
+/** One purchase of a subcategory in a month (e.g. a trip to the market). */
+@Entity(
+    tableName = "subcategory_items",
+    foreignKeys = [
+        ForeignKey(entity = ExpenseEntity::class, parentColumns = ["id"], childColumns = ["expense_id"], onDelete = ForeignKey.CASCADE),
+    ],
+    indices = [Index("expense_id")],
+)
+data class SubcategoryItemEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    /** The month's row of the subcategory this purchase adds up in. */
+    @ColumnInfo(name = "expense_id") val expenseId: Long,
+    val description: String,
+    /** Day of the purchase as epoch day, or null when unknown. */
+    @ColumnInfo(name = "date") val date: Long? = null,
+    @ColumnInfo(name = "amount_cents") val amountCents: Long,
+    /** Which payday covered it, like the spreadsheet: true = "Pago dia 15", false = "Pago dia 30". */
+    @ColumnInfo(name = "on_day15") val onDay15: Boolean = true,
 )
 
 /** Budget rule: tithe over gross income, the other three over income after tithe. Values in basis points (10000 = 100%). */
@@ -150,8 +206,12 @@ enum class ExpenseBlock { TITHE, FIXED, COUPLE, PERSONAL, INVESTMENT, EXTRA }
         ForeignKey(entity = PaymentMethodEntity::class, parentColumns = ["id"], childColumns = ["payment_method_id"], onDelete = ForeignKey.SET_NULL),
         ForeignKey(entity = PersonEntity::class, parentColumns = ["id"], childColumns = ["person_id"], onDelete = ForeignKey.SET_NULL),
         ForeignKey(entity = CardEntity::class, parentColumns = ["id"], childColumns = ["card_id"], onDelete = ForeignKey.SET_NULL),
+        ForeignKey(entity = SubcategoryEntity::class, parentColumns = ["id"], childColumns = ["subcategory_id"], onDelete = ForeignKey.SET_NULL),
     ],
-    indices = [Index("month_id"), Index("category_id"), Index("payment_method_id"), Index("person_id"), Index("card_id")],
+    indices = [
+        Index("month_id"), Index("category_id"), Index("payment_method_id"), Index("person_id"), Index("card_id"),
+        Index("subcategory_id"),
+    ],
 )
 data class ExpenseEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
@@ -163,6 +223,8 @@ data class ExpenseEntity(
     /** Required for the PERSONAL block (whose allowance it uses). */
     @ColumnInfo(name = "person_id") val personId: Long? = null,
     @ColumnInfo(name = "card_id") val cardId: Long? = null,
+    /** Set on the month's row of a subcategory; its paid values are then the sum of its items. */
+    @ColumnInfo(name = "subcategory_id") val subcategoryId: Long? = null,
     /** Free text such as "15", "30" or "15/30". */
     @ColumnInfo(name = "due_day") val dueDay: String? = null,
     @ColumnInfo(name = "planned_cents") val plannedCents: Long = 0,

@@ -50,6 +50,22 @@ class SheetsReaderTest {
     }
 
     @Test
+    fun readsSubcategoryItems() {
+        val json = JSONObject(
+            """{"ok":true,"editedAt":1,"incomes":[],"allowances":[],"expenses":[],
+               "items":[{"subcategory":"Mercado","description":"Feira","date":"03/10/2026","amount":123.45,"day":15},
+                        {"subcategory":"Mercado","description":"Padaria","date":null,"amount":8,"day":30},
+                        {"subcategory":null,"description":"sem subcategoria","amount":1,"day":15}]}"""
+        )
+        val items = SheetsReader.month(json, SheetTab("Out26", 2026, 10, 0)).items
+        assertEquals(2, items.size)
+        assertEquals(SheetMonth.Item("Mercado", "Feira", parseDate("03/10/2026"), 12_345, true), items[0])
+        assertEquals(SheetMonth.Item("Mercado", "Padaria", null, 800, false), items[1])
+        assertEquals("03/10/2026", formatDate(parseDate("03/10/2026")!!))
+        assertNull(parseDate("31/02/2026"))
+    }
+
+    @Test
     fun matchesNamesAndCards() {
         assertEquals("cartao itau", "  Cartão  Itaú ".nameKey())
         assertEquals("Itaú", cardFromPayment("Cartão Itaú"))

@@ -9,6 +9,7 @@ import com.controlefinanceiro.app.data.db.IncomeEntity
 import com.controlefinanceiro.app.data.db.MonthEntity
 import com.controlefinanceiro.app.data.db.PaymentMethodEntity
 import com.controlefinanceiro.app.data.db.PersonEntity
+import com.controlefinanceiro.app.data.db.SubcategoryItemEntity
 import com.controlefinanceiro.app.domain.BudgetCalculator
 import kotlin.math.absoluteValue
 
@@ -23,6 +24,7 @@ data class MonthSnapshot(
     val paymentMethods: List<PaymentMethodEntity>,
     val cards: List<CardEntity>,
     val settings: BudgetSettingsEntity,
+    val items: List<SubcategoryItemEntity> = emptyList(),
 )
 
 /**
@@ -63,6 +65,16 @@ object SheetsPayload {
                     "paid30" to Money(e.paidDay30Cents),
                     "paid15" to Money(e.paidDay15Cents),
                     "paid" to e.isPaid,
+                )
+            },
+            "items" to snapshot.items.mapNotNull { item ->
+                val row = snapshot.expenses.firstOrNull { it.id == item.expenseId } ?: return@mapNotNull null
+                Json.obj(
+                    "subcategory" to row.description,
+                    "description" to item.description,
+                    "date" to item.date?.let(::formatDate),
+                    "amount" to Money(item.amountCents),
+                    "day" to if (item.onDay15) 15 else 30,
                 )
             },
         ).json

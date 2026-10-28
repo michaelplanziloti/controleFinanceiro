@@ -12,6 +12,8 @@ import com.controlefinanceiro.app.data.db.IncomeEntity
 import com.controlefinanceiro.app.data.db.MonthEntity
 import com.controlefinanceiro.app.data.db.PaymentMethodEntity
 import com.controlefinanceiro.app.data.db.PersonEntity
+import com.controlefinanceiro.app.data.db.SubcategoryEntity
+import com.controlefinanceiro.app.data.db.SubcategoryItemEntity
 import com.controlefinanceiro.app.data.db.UserEntity
 import com.controlefinanceiro.app.data.sheets.MonthSnapshot
 import com.controlefinanceiro.app.data.sheets.SheetMonth
@@ -20,6 +22,7 @@ import com.controlefinanceiro.app.data.sheets.nameKey
 import com.controlefinanceiro.app.domain.PasswordHasher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.time.LocalDate
 
 sealed interface AuthResult {
     data class Success(val userId: Long) : AuthResult
@@ -85,6 +88,8 @@ class AuthRepository(private val db: AppDatabase, private val session: SessionSt
             "Investimento", "Tarifas e juros", "Livre", "Despesas eventuais",
         )
         const val CREDIT_CARD = "Cartão de crédito"
+        /** Item created from what a row already had paid when its first item was added. */
+        const val PREVIOUS_VALUE = "Valor já lançado"
         val DEFAULT_PAYMENT_METHODS = listOf("À vista/Pix", CREDIT_CARD, "Débito", "Dinheiro")
     }
 }
@@ -107,6 +112,8 @@ class FinanceRepository(private val db: AppDatabase, private val onMonthChanged:
     fun observeYearIncomes(userId: Long, year: Int) = months.observeYearIncomes(userId, year)
     fun observeYearAllowances(userId: Long, year: Int) = months.observeYearAllowances(userId, year)
     fun observeYearExpenses(userId: Long, year: Int) = months.observeYearExpenses(userId, year)
+    fun observeSubcategories(userId: Long) = ref.observeSubcategories(userId)
+    fun observeItems(monthId: Long) = months.observeItems(monthId)
 
     /**
      * Creates a month. When [copyPrevious] is true it brings incomes, allowances and the recurring
@@ -138,7 +145,127 @@ class FinanceRepository(private val db: AppDatabase, private val onMonthChanged:
                 ExpenseEntity(monthId = monthId, block = ExpenseBlock.TITHE, description = "Dízimo", autoPlanned = true, dueDay = "15/30")
             )
         }
+        // Every subcategory gets its row in the new month (rows copied from the previous month already count).
+        val have = months.expenses(monthId).mapNotNull { it.subcategoryId }.toSet()
+        ref.subcategories(userId).filter { it.id !in have }.forEach { months.insertExpense(newRow(monthId, it)) }
         return monthId
+    }
+
+    // ---------- Subcategories ----------
+
+    /**
+     * Saves a subcategory. Rows with its name become its rows, and from the current month on every
+     * month has one row that follows its block, target and defaults (a target changed in a single
+     * month is kept). Past months are left as they are.
+     */
+    suspend fun saveSubcategory(sub: SubcategoryEntity): Long {
+        val touched = mutableSetOf<Long>()
+        val id = db.withTransaction {
+            val old = if (sub.id != 0L) ref.subcategory(sub.id) else null
+            val id = if (sub.id == 0L) ref.insertSubcategory(sub) else sub.id.also { ref.updateSubcategory(sub) }
+            val saved = sub.copy(id = id)
+            val userMonths = months.all(sub.userId)
+            val monthKey = userMonths.associate { it.id to it.year * 100 + it.month }
+            val current = LocalDate.now().let { it.year * 100 + it.monthValue }
+            val key = saved.name.nameKey()
+            val oldKey = old?.name?.nameKey()
+
+            months.allExpenses(sub.userId)
+                .filter { it.subcategoryId == id || (it.subcategoryId == null && it.description.nameKey().let { d -> d == key || d == oldKey }) }
+                .forEach { row ->
+                    val linked = row.copy(subcategoryId = id)
+                    val updated = if ((monthKey[row.monthId] ?: 0) >= current) applyDefinition(linked, saved, old) else linked
+                    if (updated != row) {
+                        months.updateExpense(updated)
+                        touched += row.monthId
+                    }
+                }
+            val withRow = months.allExpenses(sub.userId).filter { it.subcategoryId == id }.map { it.monthId }.toSet()
+            userMonths.filter { it.year * 100 + it.month >= current && it.id !in withRow }.forEach {
+                months.insertExpense(newRow(it.id, saved))
+                touched += it.id
+            }
+            id
+        }
+        touched.forEach { changed(it) }
+        return id
+    }
+
+    /** The rows keep their values and items; they just stop being a subcategory. */
+    suspend fun deleteSubcategory(sub: SubcategoryEntity) = ref.deleteSubcategory(sub)
+
+    suspend fun setTracked(userId: Long, subcategoryIds: List<Long>) = ref.setTracked(userId, subcategoryIds)
+
+    private suspend fun newRow(monthId: Long, sub: SubcategoryEntity) = ExpenseEntity(
+        monthId = monthId,
+        block = sub.block,
+        description = sub.name,
+        categoryId = sub.categoryId,
+        paymentMethodId = sub.paymentMethodId,
+        cardId = sub.cardId,
+        personId = if (sub.block == ExpenseBlock.PERSONAL) sub.personId ?: ref.people(sub.userId).firstOrNull()?.id else null,
+        plannedCents = sub.plannedCents,
+        subcategoryId = sub.id,
+        sortOrder = Int.MAX_VALUE,
+    )
+
+    /** A row follows the definition; a value that differed from the old definition was set for that month and is kept. */
+    private fun applyDefinition(row: ExpenseEntity, sub: SubcategoryEntity, old: SubcategoryEntity?): ExpenseEntity {
+        fun <T> follow(rowValue: T, oldValue: T?, newValue: T): T = if (old == null || rowValue == oldValue) newValue else rowValue
+        return row.copy(
+            description = sub.name,
+            block = sub.block,
+            personId = if (sub.block == ExpenseBlock.PERSONAL) sub.personId ?: row.personId else null,
+            plannedCents = follow(row.plannedCents, old?.plannedCents, sub.plannedCents),
+            categoryId = follow(row.categoryId, old?.categoryId, sub.categoryId ?: row.categoryId),
+            paymentMethodId = follow(row.paymentMethodId, old?.paymentMethodId, sub.paymentMethodId ?: row.paymentMethodId),
+            cardId = follow(row.cardId, old?.cardId, sub.cardId ?: row.cardId),
+        )
+    }
+
+    /** The subcategory's row in the month, created if the month does not have one yet. */
+    suspend fun rowFor(subcategoryId: Long, monthId: Long): Long? = db.withTransaction {
+        months.expenses(monthId).firstOrNull { it.subcategoryId == subcategoryId }?.id
+            ?: ref.subcategory(subcategoryId)?.let { months.insertExpense(newRow(monthId, it)) }
+    }
+
+    // ---------- Subcategory items ----------
+
+    /** Adds or edits a purchase; its row's paid values become the sum of the row's items. */
+    suspend fun saveItem(item: SubcategoryItemEntity) {
+        val row = months.expense(item.expenseId) ?: return
+        db.withTransaction {
+            if (item.id == 0L) keepPaidValuesAsItems(row)
+            months.upsertItem(item)
+            sumItems(row.id)
+        }
+        changed(row.monthId)
+    }
+
+    suspend fun deleteItem(item: SubcategoryItemEntity) {
+        val row = months.expense(item.expenseId) ?: return
+        db.withTransaction {
+            months.deleteItem(item)
+            sumItems(row.id)
+        }
+        changed(row.monthId)
+    }
+
+    /** Values typed in the row before it had items become items, so the first item does not wipe them. */
+    private suspend fun keepPaidValuesAsItems(row: ExpenseEntity) {
+        if (months.itemsOf(row.id).isNotEmpty()) return
+        val before = listOf(true to row.paidDay15Cents, false to row.paidDay30Cents).filter { it.second != 0L }
+        months.insertItems(before.map { (day15, cents) -> SubcategoryItemEntity(expenseId = row.id, description = AuthRepository.PREVIOUS_VALUE, amountCents = cents, onDay15 = day15) })
+    }
+
+    private suspend fun sumItems(rowId: Long) {
+        val row = months.expense(rowId) ?: return
+        val items = months.itemsOf(rowId)
+        val summed = row.copy(
+            paidDay15Cents = items.filter { it.onDay15 }.sumOf { it.amountCents },
+            paidDay30Cents = items.filterNot { it.onDay15 }.sumOf { it.amountCents },
+        )
+        if (summed != row) months.updateExpense(summed)
     }
 
     suspend fun deleteMonth(month: MonthEntity) = months.delete(month)
@@ -218,6 +345,7 @@ class FinanceRepository(private val db: AppDatabase, private val onMonthChanged:
         sheet.allowances.forEach {
             months.putAllowance(AllowanceEntity(monthId = monthId, personId = names.person(it.person), amountCents = it.amountCents))
         }
+        val subcategories = ref.subcategories(userId).associateBy { it.name.nameKey() }
         val expenses = sheet.expenses.mapIndexed { index, e ->
             val (methodId, cardId) = names.payment(e.payment)
             ExpenseEntity(
@@ -236,10 +364,34 @@ class FinanceRepository(private val db: AppDatabase, private val onMonthChanged:
                 paidDay15Cents = e.paid15Cents,
                 isPaid = e.paid,
                 sortOrder = index,
+                subcategoryId = subcategories[e.description.nameKey()]?.id,
             )
         }
-        months.insertExpenses(expenses)
+        val ids = months.insertExpenses(expenses)
+
+        // Items go to the row with their subcategory's name (a new row in the block of that
+        // subcategory, or in "Variáveis do casal", if the sheet has items without one).
+        val rows = expenses.zip(ids).associate { (row, id) -> row.description.nameKey() to id }.toMutableMap()
+        sheet.items.groupBy { it.subcategory.nameKey() }.forEach { (key, items) ->
+            val rowId = rows[key] ?: run {
+                val sub = subcategories[key]
+                months.insertExpense(
+                    sub?.let { newRow(monthId, it) }
+                        ?: ExpenseEntity(monthId = monthId, block = ExpenseBlock.COUPLE, description = items.first().subcategory, sortOrder = Int.MAX_VALUE)
+                ).also { rows[key] = it }
+            }
+            months.insertItems(items.map {
+                SubcategoryItemEntity(expenseId = rowId, description = it.description, date = it.date, amountCents = it.amountCents, onDay15 = it.onDay15)
+            })
+        }
+        val sumsChanged = rows.values.distinct().filter { months.itemsOf(it).isNotEmpty() }.count { rowId ->
+            val before = months.expense(rowId)
+            sumItems(rowId)
+            months.expense(rowId) != before
+        }
         months.markSynced(monthId, sheet.editedAt)
+        // A row whose values did not match its items was corrected: send it back to the sheet.
+        if (sumsChanged > 0) months.markDirty(monthId)
         // Same time and origin the tab shows in B3 (an old script without times: the download time).
         months.markUpdated(monthId, sheet.editedAt.takeIf { it > 0 } ?: System.currentTimeMillis(), inSheet = !sheet.lastChangeFromApp)
         monthId
@@ -306,6 +458,7 @@ class FinanceRepository(private val db: AppDatabase, private val onMonthChanged:
             paymentMethods = ref.paymentMethods(month.userId),
             cards = ref.cards(month.userId),
             settings = ref.settings(month.userId) ?: BudgetSettingsEntity(userId = month.userId),
+            items = months.items(monthId),
         )
     }
 

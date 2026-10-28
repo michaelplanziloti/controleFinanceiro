@@ -49,6 +49,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.HorizontalDivider
@@ -108,6 +109,8 @@ import com.controlefinanceiro.app.data.db.ExpenseBlock
 import com.controlefinanceiro.app.data.db.ExpenseEntity
 import com.controlefinanceiro.app.data.db.IncomeEntity
 import com.controlefinanceiro.app.data.db.PersonEntity
+import com.controlefinanceiro.app.data.db.SubcategoryEntity
+import com.controlefinanceiro.app.data.db.SubcategoryItemEntity
 import com.controlefinanceiro.app.domain.BudgetCalculator
 import com.controlefinanceiro.app.domain.BudgetGroup
 import com.controlefinanceiro.app.domain.MonthSummary
@@ -181,6 +184,17 @@ fun MonthScreen(viewModel: MonthViewModel, contentPadding: PaddingValues) {
     var expenseList by remember { mutableStateOf<ExpenseFilter?>(null) }
     // The list to show again when the editor opened from it closes.
     var returnToList by remember { mutableStateOf<ExpenseFilter?>(null) }
+    // Subcategories: the row whose items are open, the item and subcategory being edited, the generic "+".
+    var openRowId by remember { mutableStateOf<Long?>(null) }
+    var editingItem by remember { mutableStateOf<Pair<SubcategoryItemEntity?, Long?>?>(null) }
+    var editingSubcategory by remember { mutableStateOf<SubcategoryEntity?>(null) }
+    var showNewEntry by remember { mutableStateOf(false) }
+    var showTrackerChooser by remember { mutableStateOf(false) }
+
+    fun newSubcategory() {
+        editingSubcategory = SubcategoryEntity(userId = 0, name = "", block = ExpenseBlock.COUPLE, plannedCents = 0, inTracker = true)
+    }
+
     // Open expenses of a card waiting for the "which day was it paid" answer.
     var payingAll by remember { mutableStateOf<Pair<ExpenseFilter, List<ExpenseEntity>>?>(null) }
 
@@ -287,6 +301,11 @@ fun MonthScreen(viewModel: MonthViewModel, contentPadding: PaddingValues) {
         offerUndo("\"${expense.description}\" excluído") { viewModel.restoreExpense(expense) }
     }
 
+    fun deleteItemWithUndo(item: SubcategoryItemEntity) {
+        viewModel.deleteItem(item)
+        offerUndo("\"${item.description}\" excluído") { viewModel.restoreItem(item) }
+    }
+
     fun togglePaidWithUndo(expense: ExpenseEntity) {
         viewModel.togglePaid(expense)
         val message = if (expense.isPaid) "\"${expense.description}\" reaberto" else "\"${expense.description}\" pago"
@@ -300,6 +319,15 @@ fun MonthScreen(viewModel: MonthViewModel, contentPadding: PaddingValues) {
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         containerColor = MaterialTheme.colorScheme.background,
         snackbarHost = { SnackbarHost(snackbar) },
+        floatingActionButton = {
+            if (detail != null) {
+                ExtendedFloatingActionButton(
+                    onClick = { showNewEntry = true },
+                    icon = { Icon(Icons.Default.Add, null) },
+                    text = { Text("Adicionar") },
+                )
+            }
+        },
         topBar = {
             TopAppBar(
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background),
@@ -362,7 +390,7 @@ fun MonthScreen(viewModel: MonthViewModel, contentPadding: PaddingValues) {
             LazyColumn(
                 state = listState,
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 40.dp),
+                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 96.dp),
                 verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
                 // Counts items as they are added, so taps in the overview know where each section starts.
@@ -374,10 +402,12 @@ fun MonthScreen(viewModel: MonthViewModel, contentPadding: PaddingValues) {
                 }
                 fun expenseRows(list: List<ExpenseEntity>, color: Color) {
                     itemsIndexed(list, key = { _, it -> "e-${it.id}" }) { index, expense ->
+                        val itemCount = detail.items.count { it.expenseId == expense.id }
                         ExpenseRow(expense, viewModel.resolvedPlanned(expense), state.reference, color,
                             shape = groupShape(index, list.size),
                             onToggle = { togglePaidWithUndo(expense) },
-                            onClick = { editingExpense = expense },
+                            onClick = { if (expense.subcategoryId != null || itemCount > 0) openRowId = expense.id else editingExpense = expense },
+                            itemCount = itemCount,
                             onDelete = { deleteWithUndo(expense) })
                     }
                     count += list.size
@@ -406,6 +436,14 @@ fun MonthScreen(viewModel: MonthViewModel, contentPadding: PaddingValues) {
                                 "cards" -> CardsCard(summary, state.reference, Modifier) { card ->
                                     expenseList = if (card == null) ExpenseFilter.AnyCard else ExpenseFilter.ByCard(card.id, "Cartão ${card.name}")
                                 }
+                                "tracker" -> TrackerCard(
+                                    state.reference.subcategories.filter { it.inTracker }, detail.expenses, Modifier,
+                                    onOpen = { sub ->
+                                        val row = detail.expenses.firstOrNull { it.subcategoryId == sub.id }
+                                        if (row != null) openRowId = row.id else editingItem = null to sub.id
+                                    },
+                                    onChoose = { showTrackerChooser = true },
+                                )
                                 "usage" -> IncomeUsageCard(summary, Modifier) { goTo(ANCHOR_GROUPS) }
                                 "groups" -> GroupsCard(summary, Modifier) { goTo(it) }
                                 "couple" -> CoupleCard(
@@ -492,8 +530,73 @@ fun MonthScreen(viewModel: MonthViewModel, contentPadding: PaddingValues) {
         }
     }
 
+    if (showNewEntry && detail != null) {
+        NewEntrySheet(
+            onItem = { showNewEntry = false; editingItem = null to null },
+            onExpense = {
+                showNewEntry = false
+                editingExpense = ExpenseEntity(monthId = detail.month.id, block = ExpenseBlock.COUPLE, description = "")
+            },
+            onSubcategory = { showNewEntry = false; newSubcategory() },
+            onDismiss = { showNewEntry = false },
+        )
+    }
+    openRowId?.let { rowId ->
+        val row = detail?.expenses?.firstOrNull { it.id == rowId }
+        if (row == null) {
+            openRowId = null
+        } else {
+            SubcategoryRowSheet(
+                row = row,
+                items = detail.items.filter { it.expenseId == rowId },
+                onAddItem = { editingItem = SubcategoryItemEntity(expenseId = rowId, description = "", amountCents = 0).takeIf { row.subcategoryId == null } to row.subcategoryId },
+                onEditItem = { editingItem = it to row.subcategoryId },
+                onDeleteItem = ::deleteItemWithUndo,
+                onEditRow = { openRowId = null; editingExpense = row },
+                onDismiss = { openRowId = null },
+            )
+        }
+    }
+    editingItem?.let { (item, subId) ->
+        val month = detail?.month
+        if (month != null) {
+            ItemEditorSheet(
+                initial = item?.takeIf { it.id != 0L },
+                subcategoryId = subId,
+                subcategories = state.reference.subcategories,
+                year = month.year,
+                month = month.month,
+                onSave = { chosen, saved -> viewModel.saveItem(chosen, saved.copy(expenseId = saved.expenseId.takeIf { it != 0L } ?: item?.expenseId ?: 0), item?.takeIf { it.id != 0L }); editingItem = null },
+                onDelete = { editingItem = null; deleteItemWithUndo(it) },
+                onNewSubcategory = { editingItem = null; newSubcategory() },
+                onDismiss = { editingItem = null },
+                hasRow = item != null,
+            )
+        }
+    }
+    editingSubcategory?.let { sub ->
+        SubcategoryEditorSheet(
+            initial = sub,
+            people = state.reference.people,
+            categories = state.reference.categories,
+            paymentMethods = state.reference.paymentMethods,
+            cards = state.reference.cards,
+            onSave = { viewModel.saveSubcategory(it); editingSubcategory = null },
+            onDelete = if (sub.id == 0L) null else { s -> viewModel.deleteSubcategory(s); editingSubcategory = null },
+            onDismiss = { editingSubcategory = null },
+        )
+    }
+    if (showTrackerChooser) {
+        TrackerChooserDialog(
+            state.reference.subcategories,
+            onSave = { viewModel.setTracked(it); showTrackerChooser = false },
+            onNew = { showTrackerChooser = false; newSubcategory() },
+            onDismiss = { showTrackerChooser = false },
+        )
+    }
     editingExpense?.let { expense ->
         ExpenseEditorSheet(
+            paidFromItems = detail?.items.orEmpty().any { it.expenseId == expense.id },
             initial = expense,
             reference = state.reference,
             onSave = { viewModel.saveExpense(it); closeEditor() },
@@ -917,6 +1020,7 @@ private fun ExpenseRow(
     onToggle: () -> Unit,
     onClick: () -> Unit,
     onDelete: () -> Unit,
+    itemCount: Int = 0,
 ) {
     // Swipe right marks paid (or reopens), swipe left deletes. A quick vertical scroll with a little
     // sideways drift passes the swipe's velocity threshold, so only a drag that really travelled
@@ -968,6 +1072,11 @@ private fun ExpenseRow(
             reference.cards.firstOrNull { it.id == expense.cardId }?.let { "Cartão ${it.name}" }
                 ?: reference.paymentMethods.firstOrNull { it.id == expense.paymentMethodId }?.name,
             expense.dueDay?.let { "dia $it" },
+            when {
+                itemCount == 1 -> "1 item"
+                itemCount > 1 -> "$itemCount itens"
+                else -> null
+            },
         ).joinToString(" · ")
         Row(
             Modifier.fillMaxWidth().clip(shape).background(MaterialTheme.colorScheme.surfaceContainerLow)
@@ -989,8 +1098,12 @@ private fun ExpenseRow(
             Column(horizontalAlignment = Alignment.End) {
                 MoneyText(actual, style = MaterialTheme.typography.titleSmall)
                 Text("meta ${Money.format(plannedCents)}", style = MaterialTheme.typography.bodySmall,
-                    color = if (actual > plannedCents && plannedCents > 0) LocalMoneyColors.current.negative
-                    else MaterialTheme.colorScheme.onSurfaceVariant)
+                    color = when {
+                        // Subcategory rows: red above the target, blue on it, green below.
+                        expense.subcategoryId != null -> budgetStatusColor(actual, plannedCents)
+                        actual > plannedCents && plannedCents > 0 -> LocalMoneyColors.current.negative
+                        else -> MaterialTheme.colorScheme.onSurfaceVariant
+                    })
             }
         }
     }

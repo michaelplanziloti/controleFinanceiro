@@ -83,6 +83,27 @@ interface ReferenceDao {
     @Delete
     suspend fun deleteCard(card: CardEntity)
 
+    @Query("SELECT * FROM subcategories WHERE user_id = :userId ORDER BY name")
+    fun observeSubcategories(userId: Long): Flow<List<SubcategoryEntity>>
+
+    @Query("SELECT * FROM subcategories WHERE user_id = :userId ORDER BY name")
+    suspend fun subcategories(userId: Long): List<SubcategoryEntity>
+
+    @Query("SELECT * FROM subcategories WHERE id = :id")
+    suspend fun subcategory(id: Long): SubcategoryEntity?
+
+    @Insert
+    suspend fun insertSubcategory(subcategory: SubcategoryEntity): Long
+
+    @Update
+    suspend fun updateSubcategory(subcategory: SubcategoryEntity)
+
+    @Delete
+    suspend fun deleteSubcategory(subcategory: SubcategoryEntity)
+
+    @Query("UPDATE subcategories SET in_tracker = (id IN (:ids)) WHERE user_id = :userId")
+    suspend fun setTracked(userId: Long, ids: List<Long>)
+
     @Query("SELECT * FROM budget_settings WHERE user_id = :userId")
     suspend fun settings(userId: Long): BudgetSettingsEntity?
 
@@ -128,6 +149,31 @@ interface MonthDao {
 
     @Query("DELETE FROM expenses WHERE month_id = :monthId")
     suspend fun deleteExpenses(monthId: Long)
+
+    @Query("SELECT * FROM expenses WHERE id = :id")
+    suspend fun expense(id: Long): ExpenseEntity?
+
+    @Query("SELECT e.* FROM expenses e JOIN months m ON m.id = e.month_id WHERE m.user_id = :userId")
+    suspend fun allExpenses(userId: Long): List<ExpenseEntity>
+
+    // Subcategory items
+    @Query("SELECT i.* FROM subcategory_items i JOIN expenses e ON e.id = i.expense_id WHERE e.month_id = :monthId ORDER BY i.date, i.id")
+    fun observeItems(monthId: Long): Flow<List<SubcategoryItemEntity>>
+
+    @Query("SELECT i.* FROM subcategory_items i JOIN expenses e ON e.id = i.expense_id WHERE e.month_id = :monthId ORDER BY i.date, i.id")
+    suspend fun items(monthId: Long): List<SubcategoryItemEntity>
+
+    @Query("SELECT * FROM subcategory_items WHERE expense_id = :expenseId")
+    suspend fun itemsOf(expenseId: Long): List<SubcategoryItemEntity>
+
+    @Upsert
+    suspend fun upsertItem(item: SubcategoryItemEntity): Long
+
+    @Insert
+    suspend fun insertItems(items: List<SubcategoryItemEntity>)
+
+    @Delete
+    suspend fun deleteItem(item: SubcategoryItemEntity)
 
     @Query("SELECT * FROM months WHERE user_id = :userId AND year = :year AND month = :month")
     suspend fun find(userId: Long, year: Int, month: Int): MonthEntity?
@@ -175,7 +221,7 @@ interface MonthDao {
     suspend fun insertExpense(expense: ExpenseEntity): Long
 
     @Insert
-    suspend fun insertExpenses(expenses: List<ExpenseEntity>)
+    suspend fun insertExpenses(expenses: List<ExpenseEntity>): List<Long>
 
     @Update
     suspend fun updateExpense(expense: ExpenseEntity)

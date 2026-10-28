@@ -6,6 +6,9 @@
  * - doGet: devolve as abas de mês e o conteúdo de uma delas, para o app baixar.
  * - onEdit: anota quando cada aba de mês foi editada na planilha. O app só sobrescreve uma
  *   aba se já tiver visto a última edição dela; senão ele baixa a planilha primeiro.
+ * Os itens das subcategorias (cada compra do Mercado, da Gasolina...) ficam na mesma aba, à direita
+ * do resumo, a partir da coluna AS; a linha da subcategoria nos blocos mostra a meta e a soma
+ * deles nos dias pagos. K1 tem um link para essa área.
  * Cada aba de mês mostra em B3 a data da última atualização e de onde ela veio, com o mesmo
  * horário que o app mostra para o mês.
  *
@@ -24,6 +27,11 @@ const LINHAS_MESADAS = 2;
 const PRIMEIRA_LINHA = 30;
 const FORMULA_DIZIMO = '=$D$11*Config!$C$6';
 const CELULA_ATUALIZACAO = 'B3';
+// Itens das subcategorias: título na linha 28, cabeçalho na 29 e itens da linha 30 em diante.
+const COLUNA_ITENS = 45; // AS
+const CAMPOS_ITENS = ['subcategory', 'description', 'date', 'amount', 'day'];
+const CABECALHO_ITENS = ['Subcategoria', 'Descrição', 'Data', 'Valor', 'Dia pago (15 ou 30)'];
+const CELULA_LINK_ITENS = 'K1';
 const ORIGEM_APP = 'pelo app';
 const ORIGEM_PLANILHA = 'na planilha';
 
@@ -195,7 +203,27 @@ function preencherMes(planilha, dados) {
     });
     if (linhas.length) aba.getRange(PRIMEIRA_LINHA, bloco.coluna, linhas.length, bloco.campos.length).setValues(linhas);
   });
+  preencherItens(aba, dados.items || []);
   return aba;
+}
+
+/** Escreve os itens das subcategorias à direita do resumo, com um link para eles em K1. */
+function preencherItens(aba, itens) {
+  const ultimaColuna = COLUNA_ITENS + CAMPOS_ITENS.length - 1;
+  if (aba.getMaxColumns() < ultimaColuna) aba.insertColumnsAfter(aba.getMaxColumns(), ultimaColuna - aba.getMaxColumns());
+  const faltam = PRIMEIRA_LINHA + itens.length - 1 - aba.getMaxRows();
+  if (faltam > 0) aba.insertRowsAfter(aba.getMaxRows(), faltam);
+
+  aba.getRange(PRIMEIRA_LINHA - 2, COLUNA_ITENS).setValue('Itens das subcategorias').setFontWeight('bold');
+  aba.getRange(PRIMEIRA_LINHA - 1, COLUNA_ITENS, 1, CAMPOS_ITENS.length).setValues([CABECALHO_ITENS]).setFontWeight('bold');
+  aba.getRange(PRIMEIRA_LINHA, COLUNA_ITENS, aba.getMaxRows() - PRIMEIRA_LINHA + 1, CAMPOS_ITENS.length).clearContent();
+  const linhas = itens.map(function (item) {
+    return [texto(item.subcategory), texto(item.description), item.date || '', item.amount, item.day === 30 ? 30 : 15];
+  });
+  if (linhas.length) aba.getRange(PRIMEIRA_LINHA, COLUNA_ITENS, linhas.length, CAMPOS_ITENS.length).setValues(linhas);
+
+  const destino = '#gid=' + aba.getSheetId() + '&range=' + aba.getRange(PRIMEIRA_LINHA - 2, COLUNA_ITENS).getA1Notation();
+  aba.getRange(CELULA_LINK_ITENS).setFormula('=HYPERLINK("' + destino + '", "Itens das subcategorias ›")');
 }
 
 function abaDoMes(planilha, ano, mes) {
@@ -284,7 +312,24 @@ function lerMes(aba) {
       });
     });
   }
-  return { incomes: rendas, allowances: mesadas, expenses: despesas };
+  return { incomes: rendas, allowances: mesadas, expenses: despesas, items: lerItens(aba) };
+}
+
+function lerItens(aba) {
+  const linhas = aba.getLastRow() - PRIMEIRA_LINHA + 1;
+  if (linhas <= 0 || aba.getMaxColumns() < COLUNA_ITENS + CAMPOS_ITENS.length - 1) return [];
+  return aba.getRange(PRIMEIRA_LINHA, COLUNA_ITENS, linhas, CAMPOS_ITENS.length).getValues().filter(function (r) {
+    return textoLido(r[0]) !== '' && numero(r[3]) !== 0;
+  }).map(function (r) {
+    const data = r[2] instanceof Date ? Utilities.formatDate(r[2], Session.getScriptTimeZone(), 'dd/MM/yyyy') : textoLido(r[2]);
+    return {
+      subcategory: textoLido(r[0]),
+      description: textoLido(r[1]) || textoLido(r[0]),
+      date: data || null,
+      amount: numero(r[3]),
+      day: numero(r[4]) === 30 ? 30 : 15,
+    };
+  });
 }
 
 function lido(campo, valor) {

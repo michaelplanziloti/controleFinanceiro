@@ -1,6 +1,7 @@
 package com.controlefinanceiro.app.ui.settings
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -56,12 +57,18 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.controlefinanceiro.app.data.SheetsConfig
 import com.controlefinanceiro.app.data.ThemeMode
 import com.controlefinanceiro.app.data.db.BudgetSettingsEntity
+import com.controlefinanceiro.app.data.db.ExpenseBlock
+import com.controlefinanceiro.app.data.db.SubcategoryEntity
+import com.controlefinanceiro.app.ui.common.Money
 import com.controlefinanceiro.app.ui.common.SectionCard
+import com.controlefinanceiro.app.ui.month.SubcategoryEditorSheet
+import com.controlefinanceiro.app.ui.month.title
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(viewModel: SettingsViewModel, contentPadding: PaddingValues) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    var editingSubcategory by remember { mutableStateOf<SubcategoryEntity?>(null) }
     Scaffold(
         modifier = Modifier.padding(bottom = contentPadding.calculateBottomPadding()),
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
@@ -130,6 +137,15 @@ fun SettingsScreen(viewModel: SettingsViewModel, contentPadding: PaddingValues) 
                     onAdd = viewModel::addCard,
                 )
             }
+            item {
+                SubcategoriesCard(
+                    state.subcategories,
+                    onEdit = { editingSubcategory = it },
+                    onAdd = {
+                        editingSubcategory = SubcategoryEntity(userId = 0, name = "", block = ExpenseBlock.COUPLE, plannedCents = 0, inTracker = true)
+                    },
+                )
+            }
             state.budget?.let { budget -> item { BudgetRuleCard(budget, viewModel::saveBudget) } }
             item { SheetsCard(state.sheets, state.sheetsStatus, viewModel::saveSheets, viewModel::syncSheetsNow) }
             item {
@@ -138,6 +154,52 @@ fun SettingsScreen(viewModel: SettingsViewModel, contentPadding: PaddingValues) 
                     Spacer(Modifier.size(8.dp))
                     Text("Sair")
                 }
+            }
+        }
+    }
+    editingSubcategory?.let { sub ->
+        SubcategoryEditorSheet(
+            initial = sub,
+            people = state.people,
+            categories = state.categories,
+            paymentMethods = state.paymentMethods,
+            cards = state.cards,
+            onSave = { viewModel.saveSubcategory(it); editingSubcategory = null },
+            onDelete = if (sub.id == 0L) null else { s -> viewModel.deleteSubcategory(s); editingSubcategory = null },
+            onDismiss = { editingSubcategory = null },
+        )
+    }
+}
+
+/** Budgets like "Mercado": tap one to edit it. */
+@Composable
+private fun SubcategoriesCard(subcategories: List<SubcategoryEntity>, onEdit: (SubcategoryEntity) -> Unit, onAdd: () -> Unit) {
+    SectionCard {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Subcategorias", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    "Orçamentos com meta, como Mercado e Gasolina. Cada compra que você adicionar soma na linha do mês.",
+                    style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            IconButton(onClick = onAdd) { Icon(Icons.Default.Add, "Nova subcategoria") }
+        }
+        Spacer(Modifier.height(8.dp))
+        if (subcategories.isEmpty()) {
+            Text("Nenhuma ainda.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        subcategories.forEach { sub ->
+            Row(
+                Modifier.fillMaxWidth().clip(MaterialTheme.shapes.medium).clickable { onEdit(sub) }.padding(vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(sub.name, style = MaterialTheme.typography.bodyLarge)
+                    Text(sub.block.title() + if (sub.inTracker) " · no acompanhamento" else "",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Text(Money.format(sub.plannedCents), style = MaterialTheme.typography.bodyMedium)
             }
         }
     }

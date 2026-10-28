@@ -29,8 +29,10 @@ class Converters {
         IncomeEntity::class,
         AllowanceEntity::class,
         ExpenseEntity::class,
+        SubcategoryEntity::class,
+        SubcategoryItemEntity::class,
     ],
-    version = 4,
+    version = 5,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -42,13 +44,48 @@ abstract class AppDatabase : RoomDatabase() {
     companion object {
         fun build(context: Context): AppDatabase =
             Room.databaseBuilder(context, AppDatabase::class.java, "controle_financeiro.db")
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
                 .build()
 
         /**
          * Adds cards and the expense link. Payment methods named like "Cartão Santander" become the
          * card "Santander", and their expenses move to the "Cartão de crédito" payment method.
          */
+        /** Subcategories (budgets like "Mercado"), their items, and the link from a month's row. */
+        val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `subcategories` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "`user_id` INTEGER NOT NULL, `name` TEXT NOT NULL, `block` TEXT NOT NULL, `planned_cents` INTEGER NOT NULL, " +
+                        "`category_id` INTEGER, `payment_method_id` INTEGER, `card_id` INTEGER, `person_id` INTEGER, " +
+                        "`in_tracker` INTEGER NOT NULL DEFAULT 0, " +
+                        "FOREIGN KEY(`user_id`) REFERENCES `users`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE , " +
+                        "FOREIGN KEY(`category_id`) REFERENCES `categories`(`id`) ON UPDATE NO ACTION ON DELETE SET NULL , " +
+                        "FOREIGN KEY(`payment_method_id`) REFERENCES `payment_methods`(`id`) ON UPDATE NO ACTION ON DELETE SET NULL , " +
+                        "FOREIGN KEY(`card_id`) REFERENCES `cards`(`id`) ON UPDATE NO ACTION ON DELETE SET NULL , " +
+                        "FOREIGN KEY(`person_id`) REFERENCES `people`(`id`) ON UPDATE NO ACTION ON DELETE SET NULL )"
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_subcategories_user_id` ON `subcategories` (`user_id`)")
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_subcategories_user_id_name` ON `subcategories` (`user_id`, `name`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_subcategories_category_id` ON `subcategories` (`category_id`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_subcategories_payment_method_id` ON `subcategories` (`payment_method_id`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_subcategories_card_id` ON `subcategories` (`card_id`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_subcategories_person_id` ON `subcategories` (`person_id`)")
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `subcategory_items` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "`expense_id` INTEGER NOT NULL, `description` TEXT NOT NULL, `date` INTEGER, `amount_cents` INTEGER NOT NULL, " +
+                        "`on_day15` INTEGER NOT NULL, " +
+                        "FOREIGN KEY(`expense_id`) REFERENCES `expenses`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )"
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_subcategory_items_expense_id` ON `subcategory_items` (`expense_id`)")
+                db.execSQL(
+                    "ALTER TABLE `expenses` ADD COLUMN `subcategory_id` INTEGER DEFAULT NULL " +
+                        "REFERENCES `subcategories`(`id`) ON UPDATE NO ACTION ON DELETE SET NULL"
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_expenses_subcategory_id` ON `expenses` (`subcategory_id`)")
+            }
+        }
+
         /** When each month last changed, and whether that was in the spreadsheet. */
         val MIGRATION_3_4 = object : Migration(3, 4) {
             override fun migrate(db: SupportSQLiteDatabase) {

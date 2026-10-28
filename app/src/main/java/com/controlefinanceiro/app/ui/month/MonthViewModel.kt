@@ -13,6 +13,8 @@ import com.controlefinanceiro.app.data.db.IncomeEntity
 import com.controlefinanceiro.app.data.db.MonthEntity
 import com.controlefinanceiro.app.data.db.PaymentMethodEntity
 import com.controlefinanceiro.app.data.db.PersonEntity
+import com.controlefinanceiro.app.data.db.SubcategoryEntity
+import com.controlefinanceiro.app.data.db.SubcategoryItemEntity
 import com.controlefinanceiro.app.domain.BudgetCalculator
 import com.controlefinanceiro.app.domain.MonthSummary
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -33,6 +35,7 @@ data class ReferenceData(
     val paymentMethods: List<PaymentMethodEntity> = emptyList(),
     val cards: List<CardEntity> = emptyList(),
     val settings: BudgetSettingsEntity? = null,
+    val subcategories: List<SubcategoryEntity> = emptyList(),
 )
 
 data class MonthDetail(
@@ -40,6 +43,7 @@ data class MonthDetail(
     val incomes: List<IncomeEntity>,
     val allowances: List<AllowanceEntity>,
     val expenses: List<ExpenseEntity>,
+    val items: List<SubcategoryItemEntity> = emptyList(),
 )
 
 data class MonthUiState(
@@ -72,7 +76,7 @@ class MonthViewModel(
 
     companion object {
         /** Keys of the cards at the top of the month, in their original order. */
-        val DEFAULT_CARD_ORDER = listOf("overview", "cards", "usage", "groups", "couple")
+        val DEFAULT_CARD_ORDER = listOf("overview", "cards", "tracker", "usage", "groups", "couple")
     }
 
     /** True while a pull-to-refresh check of the spreadsheet runs. */
@@ -93,9 +97,9 @@ class MonthViewModel(
         repo.observePeople(userId),
         repo.observeCategories(userId),
         repo.observePaymentMethods(userId),
-        repo.observeCards(userId),
+        combine(repo.observeCards(userId), repo.observeSubcategories(userId)) { cards, subs -> cards to subs },
         repo.observeSettings(userId),
-    ) { people, categories, methods, cards, settings -> ReferenceData(people, categories, methods, cards, settings) }
+    ) { people, categories, methods, (cards, subs), settings -> ReferenceData(people, categories, methods, cards, settings, subs) }
 
     private val months = repo.observeMonths(userId)
 
@@ -114,7 +118,8 @@ class MonthViewModel(
             repo.observeIncomes(month.id),
             repo.observeAllowances(month.id),
             repo.observeExpenses(month.id),
-        ) { incomes, allowances, expenses -> MonthDetail(month, incomes, allowances, expenses) }
+            repo.observeItems(month.id),
+        ) { incomes, allowances, expenses, items -> MonthDetail(month, incomes, allowances, expenses, items) }
     }
 
     val state: StateFlow<MonthUiState> = combine(months, detail, reference) { monthList, detail, ref ->
@@ -157,8 +162,11 @@ class MonthViewModel(
 
     /** Marks every expense paid with its planned value on day 15 or day 30 (the other day is cleared). */
     fun payAll(expenses: List<ExpenseEntity>, onDay15: Boolean) = viewModelScope.launch {
+        val withItems = state.value.detail?.items.orEmpty().map { it.expenseId }.toSet()
         repo.updateExpenses(
             expenses.map {
+                // A row with items keeps the sum of its items; it is only marked as paid.
+                if (it.id in withItems) return@map it.copy(isPaid = true)
                 val planned = resolvedPlanned(it)
                 it.copy(
                     paidDay15Cents = if (onDay15) planned else 0,
@@ -171,6 +179,25 @@ class MonthViewModel(
 
     /** Puts back expenses exactly as they were (undo of [payAll]). */
     fun restoreExpenses(expenses: List<ExpenseEntity>) = viewModelScope.launch { repo.updateExpenses(expenses) }
+
+    fun saveSubcategory(sub: SubcategoryEntity) = viewModelScope.launch { repo.saveSubcategory(sub.copy(userId = userId)) }
+    fun deleteSubcategory(sub: SubcategoryEntity) = viewModelScope.launch { repo.deleteSubcategory(sub) }
+    fun setTracked(ids: List<Long>) = viewModelScope.launch { repo.setTracked(userId, ids) }
+
+    /** Saves an item in the open month; a chosen subcategory decides the row it adds up in. */
+    fun saveItem(subcategoryId: Long?, item: SubcategoryItemEntity, previous: SubcategoryItemEntity?) = viewModelScope.launch {
+        val monthId = state.value.detail?.month?.id ?: return@launch
+        val rowId = subcategoryId?.let { repo.rowFor(it, monthId) } ?: item.expenseId
+        if (previous != null && previous.expenseId != rowId) {
+            repo.deleteItem(previous)
+            repo.saveItem(item.copy(id = 0, expenseId = rowId))
+        } else {
+            repo.saveItem(item.copy(expenseId = rowId))
+        }
+    }
+
+    fun deleteItem(item: SubcategoryItemEntity) = viewModelScope.launch { repo.deleteItem(item) }
+    fun restoreItem(item: SubcategoryItemEntity) = viewModelScope.launch { repo.saveItem(item) }
 
     fun saveIncome(income: IncomeEntity) = viewModelScope.launch { repo.saveIncome(income) }
     fun deleteIncome(income: IncomeEntity) = viewModelScope.launch { repo.deleteIncome(income) }

@@ -10,6 +10,7 @@ import com.controlefinanceiro.app.data.db.IncomeEntity
 import com.controlefinanceiro.app.data.db.MonthEntity
 import com.controlefinanceiro.app.data.db.PaymentMethodEntity
 import com.controlefinanceiro.app.data.db.PersonEntity
+import com.controlefinanceiro.app.data.db.SubcategoryItemEntity
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -60,6 +61,21 @@ class SheetsPayloadTest {
     fun textIsEscapedNotTakenAsJson() {
         assertTrue(json.contains(""""description":"Mercado \"grande\"""""))
         assertEquals("\"{a}\\n\"", Json.string("{a}\n"))
+    }
+
+    @Test
+    fun sendsItemsUnderTheirRowName() {
+        val market = ExpenseEntity(id = 40, monthId = 9, block = ExpenseBlock.COUPLE, description = "Mercado", plannedCents = 150_000)
+        val withItems = snapshot.copy(
+            expenses = snapshot.expenses + market,
+            items = listOf(
+                SubcategoryItemEntity(expenseId = 40, description = "Feira", date = parseDate("03/10/2026"), amountCents = 12_345, onDay15 = true),
+                SubcategoryItemEntity(expenseId = 40, description = "Padaria", amountCents = 800, onDay15 = false),
+            ),
+        )
+        val sent = SheetsPayload.build(withItems, "k")
+        assertTrue(sent.contains(""""items":[{"subcategory":"Mercado","description":"Feira","date":"03/10/2026","amount":123.45,"day":15},"""))
+        assertTrue(sent.contains("""{"subcategory":"Mercado","description":"Padaria","date":null,"amount":8.00,"day":30}]"""))
     }
 
     @Test

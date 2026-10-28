@@ -12,6 +12,7 @@ import com.controlefinanceiro.app.data.db.CardEntity
 import com.controlefinanceiro.app.data.db.CategoryEntity
 import com.controlefinanceiro.app.data.db.PaymentMethodEntity
 import com.controlefinanceiro.app.data.db.PersonEntity
+import com.controlefinanceiro.app.data.db.SubcategoryEntity
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
@@ -24,6 +25,7 @@ data class SettingsUiState(
     val categories: List<CategoryEntity> = emptyList(),
     val paymentMethods: List<PaymentMethodEntity> = emptyList(),
     val cards: List<CardEntity> = emptyList(),
+    val subcategories: List<SubcategoryEntity> = emptyList(),
     val budget: BudgetSettingsEntity? = null,
     val sheets: SheetsConfig = SheetsConfig(),
     val sheetsStatus: String? = null,
@@ -37,7 +39,9 @@ class SettingsViewModel(
     private val syncSheets: () -> Unit,
 ) : ViewModel() {
 
-    private val methodsAndCards = combine(repo.observePaymentMethods(userId), repo.observeCards(userId)) { methods, cards -> methods to cards }
+    private val methodsAndCards = combine(repo.observePaymentMethods(userId), repo.observeCards(userId), repo.observeSubcategories(userId)) { methods, cards, subs ->
+        Triple(methods, cards, subs)
+    }
 
     private val sheets = combine(session.sheetsConfig(userId), session.sheetsStatus(userId)) { config, status -> config to status }
 
@@ -48,9 +52,9 @@ class SettingsViewModel(
         methodsAndCards,
         repo.observeSettings(userId),
         sheets,
-    ) { (theme, people, categories), (methods, cards), budget, (sheetsConfig, sheetsStatus) ->
+    ) { (theme, people, categories), (methods, cards, subs), budget, (sheetsConfig, sheetsStatus) ->
         SettingsUiState(
-            theme, people, categories, methods, cards, budget ?: BudgetSettingsEntity(userId = userId),
+            theme, people, categories, methods, cards, subs, budget ?: BudgetSettingsEntity(userId = userId),
             sheetsConfig, sheetsStatus,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SettingsUiState())
@@ -72,6 +76,9 @@ class SettingsViewModel(
 
     fun addCard(name: String) = run { if (name.isNotBlank()) repo.addCard(userId, name) }
     fun deleteCard(card: CardEntity) = run { repo.deleteCard(card) }
+
+    fun saveSubcategory(sub: SubcategoryEntity) = run { repo.saveSubcategory(sub.copy(userId = userId)) }
+    fun deleteSubcategory(sub: SubcategoryEntity) = run { repo.deleteSubcategory(sub) }
 
     fun saveBudget(settings: BudgetSettingsEntity) = run { repo.saveSettings(settings) }
 

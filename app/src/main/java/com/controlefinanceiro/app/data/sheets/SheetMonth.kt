@@ -4,6 +4,9 @@ import com.controlefinanceiro.app.data.db.ExpenseBlock
 import org.json.JSONArray
 import org.json.JSONObject
 import java.text.Normalizer
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
+import java.time.format.ResolverStyle
 import kotlin.math.roundToLong
 
 /** A month tab as the Apps Script reads it (doGet ?aba=Out26). Money in cents. */
@@ -16,7 +19,12 @@ data class SheetMonth(
     val incomes: List<Income>,
     val allowances: List<Allowance>,
     val expenses: List<Expense>,
+    /** Purchases of subcategories, listed in the tab away from the main area. */
+    val items: List<Item> = emptyList(),
 ) {
+    /** [subcategory] is the description of the row it adds up in (e.g. "Mercado"). */
+    data class Item(val subcategory: String, val description: String, val date: Long?, val amountCents: Long, val onDay15: Boolean)
+
     data class Income(val source: String, val person: String?, val amountCents: Long)
     data class Allowance(val person: String, val amountCents: Long)
     data class Expense(
@@ -71,7 +79,19 @@ object SheetsReader {
                 paid = e.optBoolean("paid"),
             )
         },
+        items = items(json),
     )
+
+    private fun items(json: JSONObject): List<SheetMonth.Item> = json.optJSONArray("items")?.objects().orEmpty().mapNotNull { i ->
+        val subcategory = i.text("subcategory") ?: return@mapNotNull null
+        SheetMonth.Item(
+            subcategory = subcategory,
+            description = i.text("description") ?: subcategory,
+            date = i.text("date")?.let(::parseDate),
+            amountCents = i.cents("amount"),
+            onDay15 = i.optInt("day", 15) != 30,
+        )
+    }
 
     private fun JSONArray.objects(): List<JSONObject> = (0 until length()).map { getJSONObject(it) }
 
@@ -80,6 +100,13 @@ object SheetsReader {
 
     private fun JSONObject.cents(name: String): Long = (optDouble(name, 0.0).takeIf { !it.isNaN() } ?: 0.0).times(100).roundToLong()
 }
+
+private val DATE_FORMAT = DateTimeFormatter.ofPattern("dd/MM/uuuu").withResolverStyle(ResolverStyle.STRICT)
+
+/** "28/10/2026" as epoch day, or null when it is not a date. */
+fun parseDate(text: String): Long? = runCatching { LocalDate.parse(text.trim(), DATE_FORMAT).toEpochDay() }.getOrNull()
+
+fun formatDate(epochDay: Long): String = LocalDate.ofEpochDay(epochDay).format(DATE_FORMAT)
 
 /** Name used to match the spreadsheet's text to the app's lists: no case, accents or extra spaces. */
 fun String.nameKey(): String =

@@ -59,6 +59,8 @@ fun ExpenseEditorSheet(
     onSave: (ExpenseEntity) -> Unit,
     onDelete: ((ExpenseEntity) -> Unit)?,
     onDismiss: () -> Unit,
+    /** The row has subcategory items: its paid values are their sum and cannot be typed. */
+    paidFromItems: Boolean = false,
 ) {
     var description by remember { mutableStateOf(initial.description) }
     var block by remember { mutableStateOf(initial.block) }
@@ -121,9 +123,17 @@ fun ExpenseEditorSheet(
                 }
             }
             if (!(block == ExpenseBlock.TITHE && auto)) AmountField("Meta", planned, { planned = it })
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                AmountField("Pago dia 30", paid30, { paid30 = it }, Modifier.weight(1f))
-                AmountField("Pago dia 15", paid15, { paid15 = it }, Modifier.weight(1f))
+            if (paidFromItems) {
+                Text(
+                    "Pago dia 30: ${Money.format(initial.paidDay30Cents)} · Pago dia 15: ${Money.format(initial.paidDay15Cents)} " +
+                        "(soma dos itens)",
+                    style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            } else {
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    AmountField("Pago dia 30", paid30, { paid30 = it }, Modifier.weight(1f))
+                    AmountField("Pago dia 15", paid15, { paid15 = it }, Modifier.weight(1f))
+                }
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Checkbox(checked = isPaid, onCheckedChange = { isPaid = it })
