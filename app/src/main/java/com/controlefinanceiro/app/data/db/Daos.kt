@@ -72,6 +72,9 @@ interface ReferenceDao {
     suspend fun deleteCard(card: CardEntity)
 
     @Query("SELECT * FROM budget_settings WHERE user_id = :userId")
+    suspend fun settings(userId: Long): BudgetSettingsEntity?
+
+    @Query("SELECT * FROM budget_settings WHERE user_id = :userId")
     fun observeSettings(userId: Long): Flow<BudgetSettingsEntity?>
 
     @Upsert
@@ -82,6 +85,12 @@ interface ReferenceDao {
 interface MonthDao {
     @Query("SELECT * FROM months WHERE user_id = :userId ORDER BY year DESC, month DESC")
     fun observeMonths(userId: Long): Flow<List<MonthEntity>>
+
+    @Query("SELECT * FROM months WHERE id = :id")
+    suspend fun byId(id: Long): MonthEntity?
+
+    @Query("SELECT id FROM months WHERE user_id = :userId ORDER BY year, month")
+    suspend fun ids(userId: Long): List<Long>
 
     @Query("SELECT * FROM months WHERE user_id = :userId AND year = :year AND month = :month")
     suspend fun find(userId: Long, year: Int, month: Int): MonthEntity?

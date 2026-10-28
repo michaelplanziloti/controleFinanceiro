@@ -13,6 +13,7 @@ import com.controlefinanceiro.app.data.db.MonthEntity
 import com.controlefinanceiro.app.data.db.PaymentMethodEntity
 import com.controlefinanceiro.app.data.db.PersonEntity
 import com.controlefinanceiro.app.data.db.UserEntity
+import com.controlefinanceiro.app.data.sheets.MonthSnapshot
 import com.controlefinanceiro.app.domain.PasswordHasher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -84,7 +85,8 @@ class AuthRepository(private val db: AppDatabase, private val session: SessionSt
     }
 }
 
-class FinanceRepository(private val db: AppDatabase) {
+/** [onMonthChanged] runs after every change to a month's data (used to send it to Google Sheets). */
+class FinanceRepository(private val db: AppDatabase, private val onMonthChanged: (Long) -> Unit = {}) {
     private val months = db.monthDao()
     private val ref = db.referenceDao()
 
@@ -127,28 +129,55 @@ class FinanceRepository(private val db: AppDatabase) {
             )
         }
         monthId
-    }
+    }.also(onMonthChanged)
 
     suspend fun deleteMonth(month: MonthEntity) = months.delete(month)
 
-    suspend fun saveIncome(income: IncomeEntity) = months.upsertIncome(income)
-    suspend fun deleteIncome(income: IncomeEntity) = months.deleteIncome(income)
+    suspend fun saveIncome(income: IncomeEntity) = months.upsertIncome(income).also { onMonthChanged(income.monthId) }
+    suspend fun deleteIncome(income: IncomeEntity) = months.deleteIncome(income).also { onMonthChanged(income.monthId) }
 
-    suspend fun setAllowance(monthId: Long, personId: Long, amountCents: Long) =
+    suspend fun setAllowance(monthId: Long, personId: Long, amountCents: Long) {
         db.withTransaction {
             val existing = months.allowances(monthId).firstOrNull { it.personId == personId }
             months.putAllowance(AllowanceEntity(id = existing?.id ?: 0, monthId = monthId, personId = personId, amountCents = amountCents))
         }
+        onMonthChanged(monthId)
+    }
 
     suspend fun saveExpense(expense: ExpenseEntity) {
         if (expense.id == 0L) months.insertExpense(expense) else months.updateExpense(expense)
+        onMonthChanged(expense.monthId)
     }
 
-    suspend fun restoreExpense(expense: ExpenseEntity) = months.insertExpense(expense)
-    suspend fun deleteExpense(expense: ExpenseEntity) = months.deleteExpense(expense)
+    suspend fun restoreExpense(expense: ExpenseEntity) = months.insertExpense(expense).also { onMonthChanged(expense.monthId) }
+    suspend fun deleteExpense(expense: ExpenseEntity) = months.deleteExpense(expense).also { onMonthChanged(expense.monthId) }
 
-    suspend fun togglePaid(expense: ExpenseEntity) = months.updateExpense(expense.copy(isPaid = !expense.isPaid))
-    suspend fun updateExpenses(expenses: List<ExpenseEntity>) = months.updateExpenses(expenses)
+    suspend fun togglePaid(expense: ExpenseEntity) =
+        months.updateExpense(expense.copy(isPaid = !expense.isPaid)).also { onMonthChanged(expense.monthId) }
+
+    suspend fun updateExpenses(expenses: List<ExpenseEntity>) {
+        months.updateExpenses(expenses)
+        expenses.map { it.monthId }.distinct().forEach(onMonthChanged)
+    }
+
+    /** Ids of all the user's months, oldest first. */
+    suspend fun monthIds(userId: Long): List<Long> = months.ids(userId)
+
+    /** The month with everything the spreadsheet needs, or null if it was deleted. */
+    suspend fun snapshot(monthId: Long): MonthSnapshot? = db.withTransaction {
+        val month = months.byId(monthId) ?: return@withTransaction null
+        MonthSnapshot(
+            month = month,
+            incomes = months.incomes(monthId),
+            allowances = months.allowances(monthId),
+            expenses = months.expenses(monthId),
+            people = ref.people(month.userId),
+            categories = ref.categories(month.userId),
+            paymentMethods = ref.paymentMethods(month.userId),
+            cards = ref.cards(month.userId),
+            settings = ref.settings(month.userId) ?: BudgetSettingsEntity(userId = month.userId),
+        )
+    }
 
     suspend fun addPerson(userId: Long, name: String, order: Int) =
         ref.insertPerson(PersonEntity(userId = userId, name = name.trim(), sortOrder = order))

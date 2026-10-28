@@ -48,7 +48,7 @@ fun MainScreen(userId: Long, container: AppContainer) {
         initializer { YearViewModel(userId, container.finance) }
     })
     val settingsVm: SettingsViewModel = viewModel(key = "settings-$userId", factory = viewModelFactory {
-        initializer { SettingsViewModel(userId, container.finance, container.auth, container.session) }
+        initializer { SettingsViewModel(userId, container.finance, container.auth, container.session, container::sendToSheets) }
     })
 
     var tab by rememberSaveable { mutableStateOf(Tab.MONTH) }

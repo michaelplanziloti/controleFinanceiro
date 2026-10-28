@@ -26,6 +26,27 @@ A assinatura usa quatro secrets do repositório: `RELEASE_KEYSTORE_BASE64`, `REL
 
 Guarde o arquivo `.jks` e as senhas num lugar seguro: sem eles não dá para publicar atualizações do app.
 
+## Planilha Google
+
+O app pode mandar cada mês para a planilha "Controle Financeiro 2026". A cada alteração (lançamento, renda, mesada, baixa), alguns segundos depois o mês inteiro é enviado e a aba dele (ex.: `Out26`) é reescrita: renda, mesadas e os lançamentos dos cinco blocos. As fórmulas, o resumo e o Painel continuam funcionando. Se a aba do mês não existir, ela é criada a partir da aba `Modelo`. Sem internet, o envio espera a conexão voltar.
+
+O envio é só do app para a planilha: o que for digitado direto na aba de um mês é substituído no próximo envio desse mês.
+
+### Instalar o script (uma vez)
+
+1. Abra a planilha e vá em **Extensões > Apps Script**.
+2. Apague o que estiver em `Código.gs`, cole o conteúdo de [sheets/Codigo.gs](sheets/Codigo.gs) e salve.
+3. No seletor de função, no topo, escolha **gerarChave** e clique em **Executar**. O Google pede autorização: escolha sua conta, clique em **Avançado** e em **Acessar** (o aviso de "app não verificado" aparece porque o script é seu). A chave aparece no **Registro de execução**. Copie.
+4. Clique em **Implantar > Nova implantação**. Em tipo, escolha **App da Web**. Em **Executar como**, deixe **Eu**; em **Quem pode acessar**, escolha **Qualquer pessoa**. Clique em **Implantar** e copie o **URL do app da Web** (termina em `/exec`).
+5. Abra esse link no navegador: deve aparecer `{"ok":true,...}`.
+6. No app, em **Ajustes > Planilha Google**, cole o link e a chave e toque em **Salvar**. Para mandar os meses que já existem, toque em **Enviar todos os meses**.
+
+"Qualquer pessoa" deixa o app chamar o script sem login; só quem tem a chave consegue gravar. Para trocar a chave, rode `gerarChave` de novo e cole a nova no app.
+
+Se mudar o script depois, use **Implantar > Gerenciar implantações**, edite a implantação e escolha **Nova versão**: assim o link continua o mesmo.
+
+Para testar antes na planilha de verdade, faça uma cópia dela (**Arquivo > Fazer uma cópia**) e instale o script na cópia.
+
 ## Tecnologia
 
 - Kotlin 2.0, Jetpack Compose e Material 3, com tema claro, escuro ou do sistema.

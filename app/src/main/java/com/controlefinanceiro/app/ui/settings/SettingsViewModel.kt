@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.controlefinanceiro.app.data.AuthRepository
 import com.controlefinanceiro.app.data.FinanceRepository
 import com.controlefinanceiro.app.data.SessionStore
+import com.controlefinanceiro.app.data.SheetsConfig
 import com.controlefinanceiro.app.data.ThemeMode
 import com.controlefinanceiro.app.data.db.BudgetSettingsEntity
 import com.controlefinanceiro.app.data.db.CardEntity
@@ -24,6 +25,8 @@ data class SettingsUiState(
     val paymentMethods: List<PaymentMethodEntity> = emptyList(),
     val cards: List<CardEntity> = emptyList(),
     val budget: BudgetSettingsEntity? = null,
+    val sheets: SheetsConfig = SheetsConfig(),
+    val sheetsStatus: String? = null,
 )
 
 class SettingsViewModel(
@@ -31,18 +34,25 @@ class SettingsViewModel(
     private val repo: FinanceRepository,
     private val auth: AuthRepository,
     private val session: SessionStore,
+    private val sendToSheets: (monthId: Long) -> Unit,
 ) : ViewModel() {
 
     private val methodsAndCards = combine(repo.observePaymentMethods(userId), repo.observeCards(userId)) { methods, cards -> methods to cards }
 
+    private val sheets = combine(session.sheetsConfig(userId), session.sheetsStatus(userId)) { config, status -> config to status }
+
     val state: StateFlow<SettingsUiState> = combine(
-        session.themeMode,
-        repo.observePeople(userId),
-        repo.observeCategories(userId),
+        combine(session.themeMode, repo.observePeople(userId), repo.observeCategories(userId)) { theme, people, categories ->
+            Triple(theme, people, categories)
+        },
         methodsAndCards,
         repo.observeSettings(userId),
-    ) { theme, people, categories, (methods, cards), budget ->
-        SettingsUiState(theme, people, categories, methods, cards, budget ?: BudgetSettingsEntity(userId = userId))
+        sheets,
+    ) { (theme, people, categories), (methods, cards), budget, (sheetsConfig, sheetsStatus) ->
+        SettingsUiState(
+            theme, people, categories, methods, cards, budget ?: BudgetSettingsEntity(userId = userId),
+            sheetsConfig, sheetsStatus,
+        )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SettingsUiState())
 
     private fun run(block: suspend () -> Unit) {
@@ -64,6 +74,17 @@ class SettingsViewModel(
     fun deleteCard(card: CardEntity) = run { repo.deleteCard(card) }
 
     fun saveBudget(settings: BudgetSettingsEntity) = run { repo.saveSettings(settings) }
+
+    fun saveSheets(config: SheetsConfig) = run {
+        session.setSheetsConfig(userId, config)
+        session.setSheetsStatus(userId, if (config.enabled) "Configurado. As próximas alterações vão para a planilha." else "Desligado")
+    }
+
+    fun sendAllMonthsToSheets() = run {
+        val ids = repo.monthIds(userId)
+        session.setSheetsStatus(userId, "Enviando ${ids.size} meses...")
+        ids.forEach(sendToSheets)
+    }
 
     fun logout() = run { auth.logout() }
 }

@@ -44,6 +44,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.controlefinanceiro.app.data.SheetsConfig
 import com.controlefinanceiro.app.data.ThemeMode
 import com.controlefinanceiro.app.data.db.BudgetSettingsEntity
 import com.controlefinanceiro.app.ui.common.SectionCard
@@ -121,6 +122,7 @@ fun SettingsScreen(viewModel: SettingsViewModel, contentPadding: PaddingValues) 
                 )
             }
             state.budget?.let { budget -> item { BudgetRuleCard(budget, viewModel::saveBudget) } }
+            item { SheetsCard(state.sheets, state.sheetsStatus, viewModel::saveSheets, viewModel::sendAllMonthsToSheets) }
             item {
                 OutlinedButton(onClick = viewModel::logout, modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
                     Icon(Icons.AutoMirrored.Outlined.Logout, null, Modifier.size(18.dp))
@@ -202,6 +204,49 @@ private fun BudgetRuleCard(budget: BudgetSettingsEntity, onSave: (BudgetSettings
             },
             modifier = Modifier.fillMaxWidth(),
         ) { Text("Salvar regra") }
+    }
+}
+
+/** Link and key of the Apps Script that fills the spreadsheet (setup in the README, "Planilha Google"). */
+@Composable
+private fun SheetsCard(config: SheetsConfig, status: String?, onSave: (SheetsConfig) -> Unit, onSendAll: () -> Unit) {
+    var url by remember { mutableStateOf(config.url) }
+    var key by remember { mutableStateOf(config.key) }
+    LaunchedEffect(config) { url = config.url; key = config.key }
+    val changed = url.trim() != config.url || key.trim() != config.key
+
+    SectionCard {
+        Text("Planilha Google", style = MaterialTheme.typography.titleMedium)
+        Text(
+            "Cada alteração num mês é enviada para a aba dele na planilha (ex.: Out26). " +
+                "Para instalar o script, veja a seção Planilha Google no README do projeto. Deixe o link vazio para desligar.",
+            style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(12.dp))
+        OutlinedTextField(
+            url, { url = it }, Modifier.fillMaxWidth().padding(vertical = 4.dp),
+            label = { Text("Link do script (app da web)") },
+            placeholder = { Text("https://script.google.com/macros/s/.../exec") },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, autoCorrectEnabled = false),
+        )
+        OutlinedTextField(
+            key, { key = it }, Modifier.fillMaxWidth().padding(vertical = 4.dp),
+            label = { Text("Chave") },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, autoCorrectEnabled = false),
+        )
+        status?.let {
+            Spacer(Modifier.height(4.dp))
+            Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Spacer(Modifier.height(8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            OutlinedButton(onClick = onSendAll, enabled = config.enabled && !changed, modifier = Modifier.weight(1f)) {
+                Text("Enviar todos os meses")
+            }
+            Button(onClick = { onSave(SheetsConfig(url, key)) }, enabled = changed, modifier = Modifier.weight(1f)) { Text("Salvar") }
+        }
     }
 }
 
