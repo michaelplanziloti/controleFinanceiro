@@ -50,7 +50,23 @@ data class MonthUiState(
 )
 
 @OptIn(ExperimentalCoroutinesApi::class)
-class MonthViewModel(private val userId: Long, private val repo: FinanceRepository) : ViewModel() {
+class MonthViewModel(
+    private val userId: Long,
+    private val repo: FinanceRepository,
+    private val syncSheets: suspend () -> Unit,
+) : ViewModel() {
+
+    /** True while a pull-to-refresh check of the spreadsheet runs. */
+    val refreshing = MutableStateFlow(false)
+
+    fun refresh() = viewModelScope.launch {
+        refreshing.value = true
+        try {
+            syncSheets()
+        } finally {
+            refreshing.value = false
+        }
+    }
 
     private val selectedMonthId = MutableStateFlow<Long?>(null)
 

@@ -14,6 +14,9 @@ import com.controlefinanceiro.app.data.db.PaymentMethodEntity
 import com.controlefinanceiro.app.data.db.PersonEntity
 import com.controlefinanceiro.app.data.db.UserEntity
 import com.controlefinanceiro.app.data.sheets.MonthSnapshot
+import com.controlefinanceiro.app.data.sheets.SheetMonth
+import com.controlefinanceiro.app.data.sheets.cardFromPayment
+import com.controlefinanceiro.app.data.sheets.nameKey
 import com.controlefinanceiro.app.domain.PasswordHasher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -81,7 +84,8 @@ class AuthRepository(private val db: AppDatabase, private val session: SessionSt
             "Restaurantes", "Lazer", "Beleza", "Roupas", "Presentes", "Educação", "Eletrônicos", "Viagem",
             "Investimento", "Tarifas e juros", "Livre", "Despesas eventuais",
         )
-        val DEFAULT_PAYMENT_METHODS = listOf("À vista/Pix", "Cartão de crédito", "Débito", "Dinheiro")
+        const val CREDIT_CARD = "Cartão de crédito"
+        val DEFAULT_PAYMENT_METHODS = listOf("À vista/Pix", CREDIT_CARD, "Débito", "Dinheiro")
     }
 }
 
@@ -109,8 +113,14 @@ class FinanceRepository(private val db: AppDatabase, private val onMonthChanged:
      * blocks (tithe, fixed, couple variable, investments) from the latest earlier month, unpaid.
      * Personal purchases and extras are one-off, so they are not copied.
      */
-    suspend fun createMonth(userId: Long, year: Int, month: Int, copyPrevious: Boolean): Long = db.withTransaction {
-        months.find(userId, year, month)?.let { return@withTransaction it.id }
+    suspend fun createMonth(userId: Long, year: Int, month: Int, copyPrevious: Boolean): Long {
+        months.find(userId, year, month)?.let { return it.id }
+        val monthId = db.withTransaction { insertMonth(userId, year, month, copyPrevious) }
+        changed(monthId)
+        return monthId
+    }
+
+    private suspend fun insertMonth(userId: Long, year: Int, month: Int, copyPrevious: Boolean): Long {
         val monthId = months.insert(MonthEntity(userId = userId, year = year, month = month))
         val previous = if (copyPrevious) months.previous(userId, year * 100 + month) else null
         if (previous != null) {
@@ -128,40 +138,158 @@ class FinanceRepository(private val db: AppDatabase, private val onMonthChanged:
                 ExpenseEntity(monthId = monthId, block = ExpenseBlock.TITHE, description = "Dízimo", autoPlanned = true, dueDay = "15/30")
             )
         }
-        monthId
-    }.also(onMonthChanged)
+        return monthId
+    }
 
     suspend fun deleteMonth(month: MonthEntity) = months.delete(month)
 
-    suspend fun saveIncome(income: IncomeEntity) = months.upsertIncome(income).also { onMonthChanged(income.monthId) }
-    suspend fun deleteIncome(income: IncomeEntity) = months.deleteIncome(income).also { onMonthChanged(income.monthId) }
+    suspend fun saveIncome(income: IncomeEntity) {
+        months.upsertIncome(income)
+        changed(income.monthId)
+    }
+
+    suspend fun deleteIncome(income: IncomeEntity) {
+        months.deleteIncome(income)
+        changed(income.monthId)
+    }
 
     suspend fun setAllowance(monthId: Long, personId: Long, amountCents: Long) {
         db.withTransaction {
             val existing = months.allowances(monthId).firstOrNull { it.personId == personId }
             months.putAllowance(AllowanceEntity(id = existing?.id ?: 0, monthId = monthId, personId = personId, amountCents = amountCents))
         }
-        onMonthChanged(monthId)
+        changed(monthId)
     }
 
     suspend fun saveExpense(expense: ExpenseEntity) {
         if (expense.id == 0L) months.insertExpense(expense) else months.updateExpense(expense)
-        onMonthChanged(expense.monthId)
+        changed(expense.monthId)
     }
 
-    suspend fun restoreExpense(expense: ExpenseEntity) = months.insertExpense(expense).also { onMonthChanged(expense.monthId) }
-    suspend fun deleteExpense(expense: ExpenseEntity) = months.deleteExpense(expense).also { onMonthChanged(expense.monthId) }
+    suspend fun restoreExpense(expense: ExpenseEntity) {
+        months.insertExpense(expense)
+        changed(expense.monthId)
+    }
 
-    suspend fun togglePaid(expense: ExpenseEntity) =
-        months.updateExpense(expense.copy(isPaid = !expense.isPaid)).also { onMonthChanged(expense.monthId) }
+    suspend fun deleteExpense(expense: ExpenseEntity) {
+        months.deleteExpense(expense)
+        changed(expense.monthId)
+    }
+
+    suspend fun togglePaid(expense: ExpenseEntity) {
+        months.updateExpense(expense.copy(isPaid = !expense.isPaid))
+        changed(expense.monthId)
+    }
 
     suspend fun updateExpenses(expenses: List<ExpenseEntity>) {
         months.updateExpenses(expenses)
-        expenses.map { it.monthId }.distinct().forEach(onMonthChanged)
+        expenses.map { it.monthId }.distinct().forEach { changed(it) }
+    }
+
+    /** Marks the month as having changes the spreadsheet has not seen yet, then reports it. */
+    private suspend fun changed(monthId: Long) {
+        months.markDirty(monthId)
+        onMonthChanged(monthId)
     }
 
     /** Ids of all the user's months, oldest first. */
     suspend fun monthIds(userId: Long): List<Long> = months.ids(userId)
+
+    suspend fun userIds(): List<Long> = db.userDao().ids()
+    suspend fun months(userId: Long): List<MonthEntity> = months.all(userId)
+    suspend fun markSynced(monthId: Long, sheetVersion: Long) = months.markSynced(monthId, sheetVersion)
+
+    /**
+     * Replaces the month with what its spreadsheet tab has (the sheet wins) and marks it in sync.
+     * Names are matched ignoring case and accents; unknown categories, payment methods, cards and
+     * people are created, so whatever was typed in the sheet shows up in the app.
+     */
+    suspend fun importFromSheet(userId: Long, sheet: SheetMonth): Long = db.withTransaction {
+        val monthId = months.find(userId, sheet.year, sheet.month)?.id
+            ?: months.insert(MonthEntity(userId = userId, year = sheet.year, month = sheet.month))
+        months.deleteIncomes(monthId)
+        months.deleteAllowances(monthId)
+        months.deleteExpenses(monthId)
+
+        val names = NameResolver(userId)
+        sheet.incomes.forEach {
+            months.upsertIncome(IncomeEntity(monthId = monthId, personId = it.person?.let { p -> names.person(p) }, source = it.source, amountCents = it.amountCents))
+        }
+        sheet.allowances.forEach {
+            months.putAllowance(AllowanceEntity(monthId = monthId, personId = names.person(it.person), amountCents = it.amountCents))
+        }
+        val expenses = sheet.expenses.mapIndexed { index, e ->
+            val (methodId, cardId) = names.payment(e.payment)
+            ExpenseEntity(
+                monthId = monthId,
+                block = e.block,
+                description = e.description,
+                categoryId = e.category?.let { names.category(it) },
+                paymentMethodId = methodId,
+                cardId = cardId,
+                // Personal items always belong to someone; the first person is the fallback.
+                personId = e.person?.let { names.person(it) } ?: if (e.block == ExpenseBlock.PERSONAL) names.firstPerson() else null,
+                dueDay = e.dueDay,
+                plannedCents = if (e.autoPlanned) 0 else e.plannedCents,
+                autoPlanned = e.autoPlanned,
+                paidDay30Cents = e.paid30Cents,
+                paidDay15Cents = e.paid15Cents,
+                isPaid = e.paid,
+                sortOrder = index,
+            )
+        }
+        months.insertExpenses(expenses)
+        months.markSynced(monthId, sheet.editedAt)
+        monthId
+    }
+
+    /** Finds people, categories, payment methods and cards by name, creating the missing ones. */
+    private inner class NameResolver(private val userId: Long) {
+        private val people = mutableMapOf<String, Long>()
+        private val categories = mutableMapOf<String, Long>()
+        private val methods = mutableMapOf<String, Long>()
+        private val cards = mutableMapOf<String, Long>()
+        private var loaded = false
+
+        private suspend fun load() {
+            if (loaded) return
+            ref.people(userId).forEach { people.putIfAbsent(it.name.nameKey(), it.id) }
+            ref.categories(userId).forEach { categories.putIfAbsent(it.name.nameKey(), it.id) }
+            ref.paymentMethods(userId).forEach { methods.putIfAbsent(it.name.nameKey(), it.id) }
+            ref.cards(userId).forEach { cards.putIfAbsent(it.name.nameKey(), it.id) }
+            loaded = true
+        }
+
+        suspend fun person(name: String): Long {
+            load()
+            return people[name.nameKey()]
+                ?: ref.insertPerson(PersonEntity(userId = userId, name = name.trim(), sortOrder = people.size)).also { people[name.nameKey()] = it }
+        }
+
+        suspend fun firstPerson(): Long? = ref.people(userId).firstOrNull()?.id
+
+        suspend fun category(name: String): Long {
+            load()
+            return categories[name.nameKey()]
+                ?: ref.insertCategory(CategoryEntity(userId = userId, name = name.trim())).also { categories[name.nameKey()] = it }
+        }
+
+        private suspend fun method(name: String): Long {
+            load()
+            return methods[name.nameKey()]
+                ?: ref.insertPaymentMethod(PaymentMethodEntity(userId = userId, name = name.trim())).also { methods[name.nameKey()] = it }
+        }
+
+        /** Payment method and card ids for a spreadsheet "Forma de pagamento". */
+        suspend fun payment(name: String?): Pair<Long?, Long?> {
+            if (name.isNullOrBlank()) return null to null
+            val card = cardFromPayment(name) ?: return method(name) to null
+            load()
+            val cardId = cards[card.nameKey()]
+                ?: ref.insertCard(CardEntity(userId = userId, name = card)).also { cards[card.nameKey()] = it }
+            return method(AuthRepository.CREDIT_CARD) to cardId
+        }
+    }
 
     /** The month with everything the spreadsheet needs, or null if it was deleted. */
     suspend fun snapshot(monthId: Long): MonthSnapshot? = db.withTransaction {

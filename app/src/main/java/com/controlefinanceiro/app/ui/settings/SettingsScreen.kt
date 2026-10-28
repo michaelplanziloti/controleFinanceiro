@@ -131,7 +131,7 @@ fun SettingsScreen(viewModel: SettingsViewModel, contentPadding: PaddingValues) 
                 )
             }
             state.budget?.let { budget -> item { BudgetRuleCard(budget, viewModel::saveBudget) } }
-            item { SheetsCard(state.sheets, state.sheetsStatus, viewModel::saveSheets, viewModel::sendAllMonthsToSheets) }
+            item { SheetsCard(state.sheets, state.sheetsStatus, viewModel::saveSheets, viewModel::syncSheetsNow) }
             item {
                 OutlinedButton(onClick = viewModel::logout, modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
                     Icon(Icons.AutoMirrored.Outlined.Logout, null, Modifier.size(18.dp))
@@ -230,7 +230,7 @@ private fun SheetsSetupSteps() {
             "(Avançado > Acessar, o aviso aparece porque o script é seu). Copie a chave do Registro de execução.",
         "Clique em Implantar > Nova implantação > App da Web. Em Executar como, deixe Eu; em Quem pode acessar, " +
             "escolha Qualquer pessoa. Implante e copie o URL do app da Web (termina em /exec).",
-        "Cole o link e a chave aqui embaixo e toque em Salvar. Para mandar os meses que já existem, use Enviar todos os meses.",
+        "Cole o link e a chave aqui embaixo e toque em Salvar. O app baixa os meses da planilha na hora.",
     )
     Column(
         Modifier.fillMaxWidth().clip(MaterialTheme.shapes.medium).background(MaterialTheme.colorScheme.surfaceContainer).padding(14.dp),
@@ -258,7 +258,7 @@ private const val SCRIPT_URL = "github.com/michaelplanziloti/controleFinanceiro/
 
 /** Link and key of the Apps Script that fills the spreadsheet (setup in the README, "Planilha Google"). */
 @Composable
-private fun SheetsCard(config: SheetsConfig, status: String?, onSave: (SheetsConfig) -> Unit, onSendAll: () -> Unit) {
+private fun SheetsCard(config: SheetsConfig, status: String?, onSave: (SheetsConfig) -> Unit, onSyncNow: () -> Unit) {
     var url by remember { mutableStateOf(config.url) }
     var key by remember { mutableStateOf(config.key) }
     LaunchedEffect(config) { url = config.url; key = config.key }
@@ -269,7 +269,9 @@ private fun SheetsCard(config: SheetsConfig, status: String?, onSave: (SheetsCon
     SectionCard {
         Text("Planilha Google", style = MaterialTheme.typography.titleMedium)
         Text(
-            "Cada alteração num mês é enviada para a aba dele na planilha (ex.: Out26). Deixe o link vazio para desligar.",
+            "O app e a planilha ficam iguais nos dois sentidos, um mês (aba) por vez: o que muda no app vai para a aba " +
+                "do mês (ex.: Out26) e o que muda na planilha vem para o app. Se os dois mudarem, fica a versão da planilha. " +
+                "No mês, puxe a tela para baixo para conferir na hora. Deixe o link vazio para desligar.",
             style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         TextButton(onClick = { showSteps = !showSteps }, contentPadding = PaddingValues(0.dp)) {
@@ -296,8 +298,8 @@ private fun SheetsCard(config: SheetsConfig, status: String?, onSave: (SheetsCon
         }
         Spacer(Modifier.height(8.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            OutlinedButton(onClick = onSendAll, enabled = config.enabled && !changed, modifier = Modifier.weight(1f)) {
-                Text("Enviar todos os meses")
+            OutlinedButton(onClick = onSyncNow, enabled = config.enabled && !changed, modifier = Modifier.weight(1f)) {
+                Text("Sincronizar agora")
             }
             Button(onClick = { onSave(SheetsConfig(url, key)) }, enabled = changed, modifier = Modifier.weight(1f)) { Text("Salvar") }
         }

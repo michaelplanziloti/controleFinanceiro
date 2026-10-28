@@ -34,7 +34,7 @@ class SettingsViewModel(
     private val repo: FinanceRepository,
     private val auth: AuthRepository,
     private val session: SessionStore,
-    private val sendToSheets: (monthId: Long) -> Unit,
+    private val syncSheets: () -> Unit,
 ) : ViewModel() {
 
     private val methodsAndCards = combine(repo.observePaymentMethods(userId), repo.observeCards(userId)) { methods, cards -> methods to cards }
@@ -77,13 +77,13 @@ class SettingsViewModel(
 
     fun saveSheets(config: SheetsConfig) = run {
         session.setSheetsConfig(userId, config)
-        session.setSheetsStatus(userId, if (config.enabled) "Configurado. As próximas alterações vão para a planilha." else "Desligado")
+        session.setSheetsStatus(userId, if (config.enabled) "Conferindo a planilha..." else "Desligado")
+        if (config.enabled) syncSheets()
     }
 
-    fun sendAllMonthsToSheets() = run {
-        val ids = repo.monthIds(userId)
-        session.setSheetsStatus(userId, "Enviando ${ids.size} meses...")
-        ids.forEach(sendToSheets)
+    fun syncSheetsNow() = run {
+        session.setSheetsStatus(userId, "Conferindo a planilha...")
+        syncSheets()
     }
 
     fun logout() = run { auth.logout() }

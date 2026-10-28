@@ -68,6 +68,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
@@ -289,9 +290,12 @@ fun MonthScreen(viewModel: MonthViewModel, contentPadding: PaddingValues) {
             EmptyMonth(Modifier.padding(padding), loading = state.loading) { showNewMonth = true }
         } else {
             val blockColors = LocalBlockColors.current
+            val refreshing by viewModel.refreshing.collectAsStateWithLifecycle()
+            // Pulling the month down checks the spreadsheet right away.
+            PullToRefreshBox(isRefreshing = refreshing, onRefresh = { viewModel.refresh() }, modifier = Modifier.fillMaxSize().padding(padding)) {
             LazyColumn(
                 state = listState,
-                modifier = Modifier.fillMaxSize().padding(padding),
+                modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 40.dp),
                 verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
@@ -400,6 +404,7 @@ fun MonthScreen(viewModel: MonthViewModel, contentPadding: PaddingValues) {
                         expenseList = ExpenseFilter.ByMethod(methodId, name)
                     }
                 }
+            }
             }
         }
     }

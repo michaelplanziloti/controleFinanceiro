@@ -42,13 +42,13 @@ private enum class Tab(val label: String, val icon: ImageVector, val selectedIco
 fun MainScreen(userId: Long, container: AppContainer) {
     // Keyed by user so a new login never sees the previous user's data.
     val monthVm: MonthViewModel = viewModel(key = "month-$userId", factory = viewModelFactory {
-        initializer { MonthViewModel(userId, container.finance) }
+        initializer { MonthViewModel(userId, container.finance, container::syncSheetsAndWait) }
     })
     val yearVm: YearViewModel = viewModel(key = "year-$userId", factory = viewModelFactory {
         initializer { YearViewModel(userId, container.finance) }
     })
     val settingsVm: SettingsViewModel = viewModel(key = "settings-$userId", factory = viewModelFactory {
-        initializer { SettingsViewModel(userId, container.finance, container.auth, container.session, container::sendToSheets) }
+        initializer { SettingsViewModel(userId, container.finance, container.auth, container.session, container::syncSheets) }
     })
 
     var tab by rememberSaveable { mutableStateOf(Tab.MONTH) }

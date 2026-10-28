@@ -97,6 +97,10 @@ data class MonthEntity(
     val year: Int,
     /** 1..12 */
     val month: Int,
+    /** Edit time of the spreadsheet tab this month's data is based on; null = never synced with the sheet. */
+    @ColumnInfo(name = "sheet_version") val sheetVersion: Long? = null,
+    /** Changed in the app since the last send to the spreadsheet. */
+    @ColumnInfo(name = "dirty", defaultValue = "0") val dirty: Boolean = false,
 )
 
 @Entity(

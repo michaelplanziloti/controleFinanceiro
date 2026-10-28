@@ -63,6 +63,13 @@ class SheetsPayloadTest {
     }
 
     @Test
+    fun sendsTheTabVersionItKnows() {
+        assertTrue(json.contains(""""baseEditedAt":null"""))
+        val synced = SheetsPayload.build(snapshot.copy(month = snapshot.month.copy(sheetVersion = 1700)), "k")
+        assertTrue(synced.contains(""""baseEditedAt":1700"""))
+    }
+
+    @Test
     fun readsTheScriptReply() {
         val ok = SheetsClient.parse("""{"ok":true,"aba":"Out26"}""")
         assertTrue(ok.ok)
@@ -71,6 +78,10 @@ class SheetsPayloadTest {
         val refused = SheetsClient.parse("""{"ok":false,"erro":"Chave inválida"}""")
         assertFalse(refused.ok)
         assertEquals("Chave inválida", refused.error)
+
+        val conflict = SheetsClient.parse("""{"ok":false,"conflito":true,"aba":"Nov26","editedAt":5}""")
+        assertTrue(conflict.conflict)
+        assertEquals(5, conflict.editedAt)
 
         val notScript = SheetsClient.parse("<!DOCTYPE html><html>Login</html>")
         assertFalse(notScript.ok)

@@ -14,8 +14,10 @@ class AppContainer(private val app: Application) {
     val auth = AuthRepository(database, session)
     val finance = FinanceRepository(database) { monthId -> SheetsSync.schedule(app, monthId) }
 
-    /** Sends a month to the spreadsheet right away (the "Enviar todos os meses" button). */
-    fun sendToSheets(monthId: Long) = SheetsSync.schedule(app, monthId, delaySeconds = 0)
+    /** Checks the spreadsheet now: downloads what changed there and sends what changed here. */
+    fun syncSheets() = SheetsSync.pullNow(app)
+
+    suspend fun syncSheetsAndWait() = SheetsSync.pullNowAndWait(app)
 }
 
 class FinanceApp : Application() {
@@ -25,5 +27,7 @@ class FinanceApp : Application() {
     override fun onCreate() {
         super.onCreate()
         container = AppContainer(this)
+        SheetsSync.schedulePeriodicPull(this)
+        container.syncSheets()
     }
 }

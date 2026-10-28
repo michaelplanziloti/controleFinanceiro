@@ -42,6 +42,8 @@ object SheetsPayload {
             "key" to key,
             "year" to snapshot.month.year,
             "month" to snapshot.month.month,
+            // The tab version this data is based on; the script refuses the send if the tab changed since.
+            "baseEditedAt" to snapshot.month.sheetVersion,
             "incomes" to snapshot.incomes.map {
                 Json.obj("source" to it.source, "person" to personName(it.personId), "amount" to Money(it.amountCents))
             },

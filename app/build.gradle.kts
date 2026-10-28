@@ -94,4 +94,6 @@ dependencies {
     implementation(libs.androidx.work.runtime.ktx)
 
     testImplementation(libs.junit)
+    // Android ships org.json; plain JVM unit tests need the real library.
+    testImplementation(libs.org.json)
 }

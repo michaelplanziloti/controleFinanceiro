@@ -14,6 +14,9 @@ interface UserDao {
     @Insert
     suspend fun insert(user: UserEntity): Long
 
+    @Query("SELECT id FROM users")
+    suspend fun ids(): List<Long>
+
     @Query("SELECT * FROM users WHERE email = :email LIMIT 1")
     suspend fun findByEmail(email: String): UserEntity?
 
@@ -43,6 +46,15 @@ interface ReferenceDao {
 
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertCategories(categories: List<CategoryEntity>)
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertCategory(category: CategoryEntity): Long
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertPaymentMethod(method: PaymentMethodEntity): Long
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertCard(card: CardEntity): Long
 
     @Delete
     suspend fun deleteCategory(category: CategoryEntity)
@@ -91,6 +103,24 @@ interface MonthDao {
 
     @Query("SELECT id FROM months WHERE user_id = :userId ORDER BY year, month")
     suspend fun ids(userId: Long): List<Long>
+
+    @Query("SELECT * FROM months WHERE user_id = :userId")
+    suspend fun all(userId: Long): List<MonthEntity>
+
+    @Query("UPDATE months SET dirty = 1 WHERE id = :id")
+    suspend fun markDirty(id: Long)
+
+    @Query("UPDATE months SET dirty = 0, sheet_version = :version WHERE id = :id")
+    suspend fun markSynced(id: Long, version: Long)
+
+    @Query("DELETE FROM incomes WHERE month_id = :monthId")
+    suspend fun deleteIncomes(monthId: Long)
+
+    @Query("DELETE FROM allowances WHERE month_id = :monthId")
+    suspend fun deleteAllowances(monthId: Long)
+
+    @Query("DELETE FROM expenses WHERE month_id = :monthId")
+    suspend fun deleteExpenses(monthId: Long)
 
     @Query("SELECT * FROM months WHERE user_id = :userId AND year = :year AND month = :month")
     suspend fun find(userId: Long, year: Int, month: Int): MonthEntity?
