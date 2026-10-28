@@ -58,10 +58,22 @@ class MonthViewModel(
     private val syncSheets: suspend () -> Unit,
 ) : ViewModel() {
 
-    val hideIncome: StateFlow<Boolean> =
-        session.hideIncome(userId).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+    val hideValues: StateFlow<Boolean> =
+        session.hideValues(userId).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
-    fun toggleHideIncome() = viewModelScope.launch { session.setHideIncome(userId, !hideIncome.value) }
+    fun toggleHideValues() = viewModelScope.launch { session.setHideValues(userId, !hideValues.value) }
+
+    /** The overview cards in the user's order; cards missing from the saved order keep their default place at the end. */
+    val cardOrder: StateFlow<List<String>> = session.cardOrder(userId)
+        .map { saved -> saved.filter { it in DEFAULT_CARD_ORDER } + DEFAULT_CARD_ORDER.filterNot { it in saved } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), DEFAULT_CARD_ORDER)
+
+    fun saveCardOrder(order: List<String>) = viewModelScope.launch { session.setCardOrder(userId, order) }
+
+    companion object {
+        /** Keys of the cards at the top of the month, in their original order. */
+        val DEFAULT_CARD_ORDER = listOf("overview", "cards", "usage", "groups", "couple")
+    }
 
     /** True while a pull-to-refresh check of the spreadsheet runs. */
     val refreshing = MutableStateFlow(false)
@@ -87,10 +99,11 @@ class MonthViewModel(
 
     private val months = repo.observeMonths(userId)
 
-    /** Selected month, or the current calendar month, or the most recent one. */
-    private val activeMonth = combine(months, selectedMonthId) { list, selected ->
+    /** Selected month, or the one left open last time, or the current calendar month, or the most recent one. */
+    private val activeMonth = combine(months, selectedMonthId, session.lastMonth(userId)) { list, selected, last ->
         val today = LocalDate.now()
         list.firstOrNull { it.id == selected }
+            ?: list.firstOrNull { it.id == last }
             ?: list.firstOrNull { it.year == today.year && it.month == today.monthValue }
             ?: list.firstOrNull()
     }
@@ -117,6 +130,7 @@ class MonthViewModel(
 
     fun selectMonth(id: Long) {
         selectedMonthId.value = id
+        viewModelScope.launch { session.setLastMonth(userId, id) }
     }
 
     /** Moves to the neighbour month in the list; [step] is -1 (older) or +1 (newer). */

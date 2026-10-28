@@ -41,11 +41,27 @@ class SessionStore(private val context: Context) {
         context.dataStore.edit { it[themeKey] = mode.name }
     }
 
-    /** Whether the month's total income is hidden ("R$ •••••"), remembered per user. */
-    fun hideIncome(userId: Long): Flow<Boolean> = context.dataStore.data.map { it[booleanPreferencesKey("hide_income_$userId")] ?: false }
+    /** Whether the numbers of the month's main card are hidden ("R$ •••••"), remembered per user. */
+    fun hideValues(userId: Long): Flow<Boolean> = context.dataStore.data.map { it[booleanPreferencesKey("hide_values_$userId")] ?: false }
 
-    suspend fun setHideIncome(userId: Long, hide: Boolean) {
-        context.dataStore.edit { it[booleanPreferencesKey("hide_income_$userId")] = hide }
+    suspend fun setHideValues(userId: Long, hide: Boolean) {
+        context.dataStore.edit { it[booleanPreferencesKey("hide_values_$userId")] = hide }
+    }
+
+    /** The month the user had open last, so the app reopens on it. */
+    fun lastMonth(userId: Long): Flow<Long?> = context.dataStore.data.map { it[longPreferencesKey("last_month_$userId")] }
+
+    suspend fun setLastMonth(userId: Long, monthId: Long) {
+        context.dataStore.edit { it[longPreferencesKey("last_month_$userId")] = monthId }
+    }
+
+    /** Order of the cards at the top of the month, as chosen by dragging; empty means the default. */
+    fun cardOrder(userId: Long): Flow<List<String>> = context.dataStore.data.map {
+        it[stringPreferencesKey("card_order_$userId")]?.split(',')?.filter(String::isNotBlank).orEmpty()
+    }
+
+    suspend fun setCardOrder(userId: Long, order: List<String>) {
+        context.dataStore.edit { it[stringPreferencesKey("card_order_$userId")] = order.joinToString(",") }
     }
 
     fun sheetsConfig(userId: Long): Flow<SheetsConfig> = context.dataStore.data.map {

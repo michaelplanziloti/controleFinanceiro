@@ -3,6 +3,7 @@ package com.controlefinanceiro.app.ui.month
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -90,12 +91,17 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.controlefinanceiro.app.data.db.CardEntity
 import com.controlefinanceiro.app.data.db.ExpenseBlock
@@ -177,6 +183,60 @@ fun MonthScreen(viewModel: MonthViewModel, contentPadding: PaddingValues) {
     var returnToList by remember { mutableStateOf<ExpenseFilter?>(null) }
     // Open expenses of a card waiting for the "which day was it paid" answer.
     var payingAll by remember { mutableStateOf<Pair<ExpenseFilter, List<ExpenseEntity>>?>(null) }
+
+    // Overview cards can be reordered: long-press one and drag it up or down.
+    val savedOrder by viewModel.cardOrder.collectAsStateWithLifecycle()
+    var cardOrder by remember(savedOrder) { mutableStateOf(savedOrder) }
+    var draggingCard by remember { mutableStateOf<String?>(null) }
+    var dragOffset by remember { mutableFloatStateOf(0f) }
+    val haptics = LocalHapticFeedback.current
+
+    /** Moves the dragged card past a neighbour once its middle crosses into it, keeping it under the finger. */
+    fun dragCard(key: String, dy: Float) {
+        dragOffset += dy
+        val items = listState.layoutInfo.visibleItemsInfo
+        val current = items.firstOrNull { it.key == key } ?: return
+        val middle = current.offset + dragOffset + current.size / 2f
+        val target = items.firstOrNull { it.key != key && it.key in cardOrder && middle >= it.offset && middle < it.offset + it.size }
+            ?: return
+        val from = cardOrder.indexOf(key)
+        val to = cardOrder.indexOf(target.key)
+        cardOrder = cardOrder.toMutableList().apply { add(to, removeAt(from)) }
+        dragOffset += if (to > from) -((target.offset + target.size) - (current.offset + current.size)).toFloat()
+        else (current.offset - target.offset).toFloat()
+    }
+
+    fun endCardDrag() {
+        if (draggingCard != null) viewModel.saveCardOrder(cardOrder)
+        draggingCard = null
+        dragOffset = 0f
+    }
+
+    fun Modifier.reorderableCard(key: String) = this
+        .zIndex(if (draggingCard == key) 1f else 0f)
+        .graphicsLayer {
+            if (draggingCard == key) {
+                translationY = dragOffset
+                scaleX = 1.02f
+                scaleY = 1.02f
+                alpha = 0.95f
+            }
+        }
+        .pointerInput(key) {
+            detectDragGesturesAfterLongPress(
+                onDragStart = {
+                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                    draggingCard = key
+                    dragOffset = 0f
+                },
+                onDrag = { change, amount ->
+                    change.consume()
+                    dragCard(key, amount.y)
+                },
+                onDragEnd = ::endCardDrag,
+                onDragCancel = ::endCardDrag,
+            )
+        }
 
     /** Expands the target section if needed and scrolls to it. */
     fun goTo(target: String) {
@@ -325,28 +385,39 @@ fun MonthScreen(viewModel: MonthViewModel, contentPadding: PaddingValues) {
 
                 // Always present (even empty), so the list does not stay scrolled past it when it appears.
                 single("updated") { detail.month.updatedAt?.let { UpdatedLine(it, detail.month.updatedInSheet) } }
-                single("overview") {
-                    val hideIncome by viewModel.hideIncome.collectAsStateWithLifecycle()
-                    HeroCard(
-                        summary, hideIncome, onToggleIncome = viewModel::toggleHideIncome,
-                        onIncome = { goTo(ANCHOR_INCOME) }, onBudget = { goTo(ANCHOR_GROUPS) }, onSurplus = { goTo(ANCHOR_USAGE) },
-                    )
-                }
-                single("cards") {
-                    CardsCard(summary, state.reference, Modifier.padding(top = 12.dp)) { card ->
-                        expenseList = if (card == null) ExpenseFilter.AnyCard else ExpenseFilter.ByCard(card.id, "Cartão ${card.name}")
+                // The overview cards, in the order the user arranged them by dragging.
+                cardOrder.forEachIndexed { index, key ->
+                    val anchor = when (key) {
+                        "usage" -> ANCHOR_USAGE
+                        "groups" -> ANCHOR_GROUPS
+                        else -> null
                     }
-                }
-                single("usage", ANCHOR_USAGE) { IncomeUsageCard(summary, Modifier.padding(top = 12.dp)) { goTo(ANCHOR_GROUPS) } }
-                single("groups", ANCHOR_GROUPS) { GroupsCard(summary, Modifier.padding(top = 12.dp)) { goTo(it) } }
-                single("couple") {
-                    CoupleCard(
-                        summary, Modifier.padding(top = 12.dp),
-                        onEditAllowance = { editingAllowance = it },
-                        onPerson = { goTo("person-${it.id}") },
-                        onAllowances = { goTo(Section.PERSONAL.name) },
-                        onCouple = { goTo(Section.COUPLE.name) },
-                    )
+                    single(key, anchor) {
+                        Box(Modifier.reorderableCard(key).padding(top = if (index > 0) 12.dp else 0.dp)) {
+                            when (key) {
+                                "overview" -> {
+                                    val hideValues by viewModel.hideValues.collectAsStateWithLifecycle()
+                                    HeroCard(
+                                        summary, hideValues, onToggleHidden = viewModel::toggleHideValues,
+                                        onIncome = { goTo(ANCHOR_INCOME) }, onBudget = { goTo(ANCHOR_GROUPS) },
+                                        onSurplus = { goTo(ANCHOR_USAGE) },
+                                    )
+                                }
+                                "cards" -> CardsCard(summary, state.reference, Modifier) { card ->
+                                    expenseList = if (card == null) ExpenseFilter.AnyCard else ExpenseFilter.ByCard(card.id, "Cartão ${card.name}")
+                                }
+                                "usage" -> IncomeUsageCard(summary, Modifier) { goTo(ANCHOR_GROUPS) }
+                                "groups" -> GroupsCard(summary, Modifier) { goTo(it) }
+                                "couple" -> CoupleCard(
+                                    summary, Modifier,
+                                    onEditAllowance = { editingAllowance = it },
+                                    onPerson = { goTo("person-${it.id}") },
+                                    onAllowances = { goTo(Section.PERSONAL.name) },
+                                    onCouple = { goTo(Section.COUPLE.name) },
+                                )
+                            }
+                        }
+                    }
                 }
 
                 // Income
@@ -549,8 +620,8 @@ private val UPDATED_FORMAT = DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm")
 @Composable
 private fun HeroCard(
     summary: MonthSummary,
-    hideIncome: Boolean,
-    onToggleIncome: () -> Unit,
+    hidden: Boolean,
+    onToggleHidden: () -> Unit,
     onIncome: () -> Unit,
     onBudget: () -> Unit,
     onSurplus: () -> Unit,
@@ -572,20 +643,36 @@ private fun HeroCard(
     ) {
         Row(Modifier.clickable(onClick = onSurplus), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text("Sobra do mês", style = MaterialTheme.typography.labelLarge, color = hero.muted)
-                Spacer(Modifier.height(4.dp))
-                MoneyText(summary.surplusCents, style = MaterialTheme.typography.displaySmall, color = hero.content)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Sobra do mês", style = MaterialTheme.typography.labelLarge, color = hero.muted)
+                    // One eye hides or shows every number of this card.
+                    Icon(
+                        if (hidden) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility,
+                        if (hidden) "Mostrar valores" else "Esconder valores",
+                        Modifier.clip(CircleShape).clickable(onClick = onToggleHidden).padding(8.dp).size(18.dp),
+                        tint = hero.muted,
+                    )
+                }
+                if (hidden) {
+                    Text(HIDDEN_MONEY, style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.SemiBold, color = hero.content)
+                } else {
+                    MoneyText(summary.surplusCents, style = MaterialTheme.typography.displaySmall, color = hero.content)
+                }
                 Spacer(Modifier.height(10.dp))
                 Pill(
-                    "Poupança ${Money.formatPercent(summary.savingsRate)}",
+                    "Poupança ${if (hidden) "••%" else Money.formatPercent(summary.savingsRate)}",
                     color = hero.content, container = hero.tile,
                 )
             }
             Spacer(Modifier.width(12.dp))
-            UsageRing(used, ringColor, hero.tile, Modifier.size(104.dp), strokeWidth = 10.dp) {
+            UsageRing(if (hidden) 0f else used, ringColor, hero.tile, Modifier.size(104.dp), strokeWidth = 10.dp) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(
-                        if (summary.incomeCents > 0) "${(used * 100).toInt()}%" else "–",
+                        when {
+                            hidden -> "••%"
+                            summary.incomeCents > 0 -> "${(used * 100).toInt()}%"
+                            else -> "–"
+                        },
                         style = MaterialTheme.typography.titleLarge, color = hero.content,
                     )
                     Text("da renda", style = MaterialTheme.typography.labelMedium, color = hero.muted)
@@ -594,48 +681,29 @@ private fun HeroCard(
         }
         Spacer(Modifier.height(20.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            IncomeTile(summary.incomeCents, hideIncome, onToggleIncome, Modifier.weight(1f), onIncome)
-            HeroTile("Previsto", summary.plannedCents, Modifier.weight(1f), onBudget)
-            HeroTile("Realizado", summary.actualCents, Modifier.weight(1f), onBudget)
-        }
-    }
-}
-
-/** The "Renda" tile, with an eye that hides or shows the total income. */
-@Composable
-private fun IncomeTile(cents: Long, hidden: Boolean, onToggle: () -> Unit, modifier: Modifier, onClick: () -> Unit) {
-    val hero = LocalHeroColors.current
-    Column(
-        modifier.clip(MaterialTheme.shapes.medium).background(hero.tile).clickable(onClick = onClick)
-            .padding(start = 12.dp, end = 4.dp, top = 2.dp, bottom = 10.dp),
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Renda", Modifier.weight(1f), style = MaterialTheme.typography.labelMedium, color = hero.muted)
-            Icon(
-                if (hidden) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility,
-                if (hidden) "Mostrar renda" else "Esconder renda",
-                Modifier.clip(CircleShape).clickable(onClick = onToggle).padding(6.dp).size(16.dp),
-                tint = hero.muted,
-            )
-        }
-        if (hidden) {
-            Text("R$ •••••", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, color = hero.content, maxLines = 1)
-        } else {
-            MoneyText(cents, style = MaterialTheme.typography.titleSmall, color = hero.content)
+            HeroTile("Renda", summary.incomeCents, hidden, Modifier.weight(1f), onIncome)
+            HeroTile("Previsto", summary.plannedCents, hidden, Modifier.weight(1f), onBudget)
+            HeroTile("Realizado", summary.actualCents, hidden, Modifier.weight(1f), onBudget)
         }
     }
 }
 
 @Composable
-private fun HeroTile(label: String, cents: Long, modifier: Modifier, onClick: () -> Unit) {
+private fun HeroTile(label: String, cents: Long, hidden: Boolean, modifier: Modifier, onClick: () -> Unit) {
     val hero = LocalHeroColors.current
-    LabelValue(
-        label, cents,
-        modifier.clip(MaterialTheme.shapes.medium).background(hero.tile).clickable(onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 10.dp),
-        labelColor = hero.muted, valueColor = hero.content,
-    )
+    val tile = modifier.clip(MaterialTheme.shapes.medium).background(hero.tile).clickable(onClick = onClick)
+        .padding(horizontal = 12.dp, vertical = 10.dp)
+    if (hidden) {
+        Column(tile) {
+            Text(label, style = MaterialTheme.typography.labelMedium, color = hero.muted)
+            Text(HIDDEN_MONEY, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, color = hero.content, maxLines = 1)
+        }
+    } else {
+        LabelValue(label, cents, tile, labelColor = hero.muted, valueColor = hero.content)
+    }
 }
+
+private const val HIDDEN_MONEY = "R$ •••••"
 
 /** Same two checks as the spreadsheet summary: actual and planned against the income, without "Fora do orçamento". */
 @Composable
