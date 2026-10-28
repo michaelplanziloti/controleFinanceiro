@@ -1,6 +1,7 @@
 package com.controlefinanceiro.app.data
 
 import android.content.Context
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
@@ -38,6 +39,13 @@ class SessionStore(private val context: Context) {
 
     suspend fun setTheme(mode: ThemeMode) {
         context.dataStore.edit { it[themeKey] = mode.name }
+    }
+
+    /** Whether the month's total income is hidden ("R$ •••••"), remembered per user. */
+    fun hideIncome(userId: Long): Flow<Boolean> = context.dataStore.data.map { it[booleanPreferencesKey("hide_income_$userId")] ?: false }
+
+    suspend fun setHideIncome(userId: Long, hide: Boolean) {
+        context.dataStore.edit { it[booleanPreferencesKey("hide_income_$userId")] = hide }
     }
 
     fun sheetsConfig(userId: Long): Flow<SheetsConfig> = context.dataStore.data.map {

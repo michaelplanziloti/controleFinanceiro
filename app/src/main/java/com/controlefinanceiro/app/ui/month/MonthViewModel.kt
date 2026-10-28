@@ -3,6 +3,7 @@ package com.controlefinanceiro.app.ui.month
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.controlefinanceiro.app.data.FinanceRepository
+import com.controlefinanceiro.app.data.SessionStore
 import com.controlefinanceiro.app.data.db.AllowanceEntity
 import com.controlefinanceiro.app.data.db.BudgetSettingsEntity
 import com.controlefinanceiro.app.data.db.CardEntity
@@ -53,8 +54,14 @@ data class MonthUiState(
 class MonthViewModel(
     private val userId: Long,
     private val repo: FinanceRepository,
+    private val session: SessionStore,
     private val syncSheets: suspend () -> Unit,
 ) : ViewModel() {
+
+    val hideIncome: StateFlow<Boolean> =
+        session.hideIncome(userId).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+
+    fun toggleHideIncome() = viewModelScope.launch { session.setHideIncome(userId, !hideIncome.value) }
 
     /** True while a pull-to-refresh check of the spreadsheet runs. */
     val refreshing = MutableStateFlow(false)

@@ -40,6 +40,8 @@ import androidx.compose.material.icons.outlined.Payments
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.ShoppingCart
 import androidx.compose.material.icons.outlined.Update
+import androidx.compose.material.icons.outlined.Visibility
+import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material.icons.outlined.VolunteerActivism
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -324,7 +326,11 @@ fun MonthScreen(viewModel: MonthViewModel, contentPadding: PaddingValues) {
                 // Always present (even empty), so the list does not stay scrolled past it when it appears.
                 single("updated") { detail.month.updatedAt?.let { UpdatedLine(it, detail.month.updatedInSheet) } }
                 single("overview") {
-                    HeroCard(summary, onIncome = { goTo(ANCHOR_INCOME) }, onBudget = { goTo(ANCHOR_GROUPS) }, onSurplus = { goTo(ANCHOR_USAGE) })
+                    val hideIncome by viewModel.hideIncome.collectAsStateWithLifecycle()
+                    HeroCard(
+                        summary, hideIncome, onToggleIncome = viewModel::toggleHideIncome,
+                        onIncome = { goTo(ANCHOR_INCOME) }, onBudget = { goTo(ANCHOR_GROUPS) }, onSurplus = { goTo(ANCHOR_USAGE) },
+                    )
                 }
                 single("cards") {
                     CardsCard(summary, state.reference, Modifier.padding(top = 12.dp)) { card ->
@@ -541,7 +547,14 @@ private val UPDATED_FORMAT = DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm")
 
 /** Gradient card at the top: what is left of the income, savings rate and a ring with how much of it is used. */
 @Composable
-private fun HeroCard(summary: MonthSummary, onIncome: () -> Unit, onBudget: () -> Unit, onSurplus: () -> Unit) {
+private fun HeroCard(
+    summary: MonthSummary,
+    hideIncome: Boolean,
+    onToggleIncome: () -> Unit,
+    onIncome: () -> Unit,
+    onBudget: () -> Unit,
+    onSurplus: () -> Unit,
+) {
     val hero = LocalHeroColors.current
     val used = ratioOf(summary.actualCents, summary.incomeCents)
     val ringColor = when {
@@ -581,9 +594,34 @@ private fun HeroCard(summary: MonthSummary, onIncome: () -> Unit, onBudget: () -
         }
         Spacer(Modifier.height(20.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            HeroTile("Renda", summary.incomeCents, Modifier.weight(1f), onIncome)
+            IncomeTile(summary.incomeCents, hideIncome, onToggleIncome, Modifier.weight(1f), onIncome)
             HeroTile("Previsto", summary.plannedCents, Modifier.weight(1f), onBudget)
             HeroTile("Realizado", summary.actualCents, Modifier.weight(1f), onBudget)
+        }
+    }
+}
+
+/** The "Renda" tile, with an eye that hides or shows the total income. */
+@Composable
+private fun IncomeTile(cents: Long, hidden: Boolean, onToggle: () -> Unit, modifier: Modifier, onClick: () -> Unit) {
+    val hero = LocalHeroColors.current
+    Column(
+        modifier.clip(MaterialTheme.shapes.medium).background(hero.tile).clickable(onClick = onClick)
+            .padding(start = 12.dp, end = 4.dp, top = 2.dp, bottom = 10.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Renda", Modifier.weight(1f), style = MaterialTheme.typography.labelMedium, color = hero.muted)
+            Icon(
+                if (hidden) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility,
+                if (hidden) "Mostrar renda" else "Esconder renda",
+                Modifier.clip(CircleShape).clickable(onClick = onToggle).padding(6.dp).size(16.dp),
+                tint = hero.muted,
+            )
+        }
+        if (hidden) {
+            Text("R$ •••••", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, color = hero.content, maxLines = 1)
+        } else {
+            MoneyText(cents, style = MaterialTheme.typography.titleSmall, color = hero.content)
         }
     }
 }

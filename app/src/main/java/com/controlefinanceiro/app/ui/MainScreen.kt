@@ -42,7 +42,7 @@ private enum class Tab(val label: String, val icon: ImageVector, val selectedIco
 fun MainScreen(userId: Long, container: AppContainer) {
     // Keyed by user so a new login never sees the previous user's data.
     val monthVm: MonthViewModel = viewModel(key = "month-$userId", factory = viewModelFactory {
-        initializer { MonthViewModel(userId, container.finance, container::syncSheetsAndWait) }
+        initializer { MonthViewModel(userId, container.finance, container.session, container::syncSheetsAndWait) }
     })
     val yearVm: YearViewModel = viewModel(key = "year-$userId", factory = viewModelFactory {
         initializer { YearViewModel(userId, container.finance) }
