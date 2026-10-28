@@ -1,6 +1,8 @@
 package com.controlefinanceiro.app.ui.settings
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
@@ -12,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -32,6 +35,7 @@ import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -41,6 +45,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -207,6 +216,46 @@ private fun BudgetRuleCard(budget: BudgetSettingsEntity, onSave: (BudgetSettings
     }
 }
 
+/** One-time setup of the Apps Script, done on a computer in the spreadsheet. */
+@Composable
+private fun SheetsSetupSteps() {
+    val context = LocalContext.current
+    val clipboard = LocalClipboardManager.current
+    var copied by remember { mutableStateOf(false) }
+    val steps = listOf(
+        "No computador, abra a planilha Controle Financeiro 2026 e vá em Extensões > Apps Script.",
+        "Apague o que estiver no arquivo Código.gs e cole o código do script. Ele está em $SCRIPT_URL " +
+            "e também pode ser copiado pelo botão abaixo.",
+        "Salve. No topo, escolha a função gerarChave e clique em Executar. Autorize com sua conta " +
+            "(Avançado > Acessar, o aviso aparece porque o script é seu). Copie a chave do Registro de execução.",
+        "Clique em Implantar > Nova implantação > App da Web. Em Executar como, deixe Eu; em Quem pode acessar, " +
+            "escolha Qualquer pessoa. Implante e copie o URL do app da Web (termina em /exec).",
+        "Cole o link e a chave aqui embaixo e toque em Salvar. Para mandar os meses que já existem, use Enviar todos os meses.",
+    )
+    Column(
+        Modifier.fillMaxWidth().clip(MaterialTheme.shapes.medium).background(MaterialTheme.colorScheme.surfaceContainer).padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        steps.forEachIndexed { index, step ->
+            Row {
+                Text("${index + 1}.", Modifier.width(22.dp), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                Text(step, style = MaterialTheme.typography.bodyMedium)
+            }
+        }
+        OutlinedButton(
+            onClick = {
+                val code = context.assets.open(SCRIPT_ASSET).bufferedReader().use { it.readText() }
+                clipboard.setText(AnnotatedString(code))
+                copied = true
+            },
+            modifier = Modifier.fillMaxWidth(),
+        ) { Text(if (copied) "Código copiado" else "Copiar código do script") }
+    }
+}
+
+private const val SCRIPT_ASSET = "Codigo.gs"
+private const val SCRIPT_URL = "github.com/michaelplanziloti/controleFinanceiro/blob/main/sheets/Codigo.gs"
+
 /** Link and key of the Apps Script that fills the spreadsheet (setup in the README, "Planilha Google"). */
 @Composable
 private fun SheetsCard(config: SheetsConfig, status: String?, onSave: (SheetsConfig) -> Unit, onSendAll: () -> Unit) {
@@ -215,14 +264,19 @@ private fun SheetsCard(config: SheetsConfig, status: String?, onSave: (SheetsCon
     LaunchedEffect(config) { url = config.url; key = config.key }
     val changed = url.trim() != config.url || key.trim() != config.key
 
+    var showSteps by remember { mutableStateOf(!config.enabled) }
+
     SectionCard {
         Text("Planilha Google", style = MaterialTheme.typography.titleMedium)
         Text(
-            "Cada alteração num mês é enviada para a aba dele na planilha (ex.: Out26). " +
-                "Para instalar o script, veja a seção Planilha Google no README do projeto. Deixe o link vazio para desligar.",
+            "Cada alteração num mês é enviada para a aba dele na planilha (ex.: Out26). Deixe o link vazio para desligar.",
             style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        Spacer(Modifier.height(12.dp))
+        TextButton(onClick = { showSteps = !showSteps }, contentPadding = PaddingValues(0.dp)) {
+            Text(if (showSteps) "Esconder como instalar" else "Como instalar o script na planilha")
+        }
+        if (showSteps) SheetsSetupSteps()
+        Spacer(Modifier.height(8.dp))
         OutlinedTextField(
             url, { url = it }, Modifier.fillMaxWidth().padding(vertical = 4.dp),
             label = { Text("Link do script (app da web)") },

@@ -64,6 +64,8 @@ android {
     val hasDemoSeed = file("src/demoSeed/java").exists()
     sourceSets["debug"].java.srcDir(if (hasDemoSeed) "src/demoSeed/java" else "src/noDemoSeed/java")
     sourceSets["release"].java.srcDir("src/noDemoSeed/java")
+    // The Google Sheets script ships inside the app so Ajustes can copy it for the user.
+    sourceSets["main"].assets.srcDir(rootProject.file("sheets"))
 }
 
 ksp {
