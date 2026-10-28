@@ -6,6 +6,7 @@
  * - doGet: devolve as abas de mês e o conteúdo de uma delas, para o app baixar.
  * - onEdit: anota quando cada aba de mês foi editada na planilha. O app só sobrescreve uma
  *   aba se já tiver visto a última edição dela; senão ele baixa a planilha primeiro.
+ * Cada aba de mês mostra em B3 a data da última atualização e de onde ela veio.
  *
  * Instalação: no app, em Ajustes > Planilha Google > Como instalar o script na planilha.
  */
@@ -21,6 +22,7 @@ const LINHA_MESADAS = 17;
 const LINHAS_MESADAS = 2;
 const PRIMEIRA_LINHA = 30;
 const FORMULA_DIZIMO = '=$D$11*Config!$C$6';
+const CELULA_ATUALIZACAO = 'B3';
 
 // Coluna inicial e campos de cada bloco, na ordem das colunas da aba.
 const BLOCOS = {
@@ -40,8 +42,11 @@ function gerarChave() {
 
 /** Gatilho simples: guarda a hora da última edição feita à mão numa aba de mês. */
 function onEdit(e) {
-  const nome = e.range.getSheet().getName();
-  if (NOME_DE_MES.test(nome)) marcarEdicao(nome, Date.now());
+  const aba = e.range.getSheet();
+  if (!NOME_DE_MES.test(aba.getName()) || e.range.getA1Notation() === CELULA_ATUALIZACAO) return;
+  const agora = Date.now();
+  marcarEdicao(aba.getName(), agora);
+  carimbar(aba, agora, 'na planilha');
 }
 
 function doPost(e) {
@@ -62,6 +67,7 @@ function doPost(e) {
       const aba = preencherMes(planilha, dados);
       const agora = Date.now();
       marcarEdicao(aba.getName(), agora);
+      carimbar(aba, agora, 'pelo app');
       return resposta({ ok: true, aba: aba.getName(), editedAt: agora });
     } finally {
       trava.releaseLock();
@@ -118,6 +124,13 @@ function edicao(nome) {
 
 function marcarEdicao(nome, quando) {
   PropertiesService.getDocumentProperties().setProperty('editado:' + nome, String(quando));
+}
+
+/** Escreve em B3 algo como "Última atualização: 28/10/2026 15:34 (pelo app)". */
+function carimbar(aba, quando, origem) {
+  const data = Utilities.formatDate(new Date(quando), Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm');
+  aba.getRange(CELULA_ATUALIZACAO).setValue('Última atualização: ' + data + ' (' + origem + ')')
+    .setFontStyle('italic').setFontColor('#6b7280');
 }
 
 /** Sem base, o app nunca baixou o mês: só pode escrever se a aba estiver vazia. */

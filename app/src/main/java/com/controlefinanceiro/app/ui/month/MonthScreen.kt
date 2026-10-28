@@ -39,6 +39,7 @@ import androidx.compose.material.icons.outlined.MoreHoriz
 import androidx.compose.material.icons.outlined.Payments
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.ShoppingCart
+import androidx.compose.material.icons.outlined.Update
 import androidx.compose.material.icons.outlined.VolunteerActivism
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -122,7 +123,10 @@ import com.controlefinanceiro.app.ui.theme.LocalHeroColors
 import com.controlefinanceiro.app.ui.theme.LocalMoneyColors
 import kotlin.math.abs
 import kotlinx.coroutines.launch
+import java.time.Instant
 import java.time.LocalDate
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 
 /** Sections shown in the month, top to bottom. TITHE is listed inside the fixed section. */
 private enum class Section(val title: String, val icon: ImageVector, val blocks: Set<ExpenseBlock>, val newBlock: ExpenseBlock) {
@@ -317,6 +321,8 @@ fun MonthScreen(viewModel: MonthViewModel, contentPadding: PaddingValues) {
                     count += list.size
                 }
 
+                // Always present (even empty), so the list does not stay scrolled past it when it appears.
+                single("updated") { detail.month.updatedAt?.let { UpdatedLine(it, detail.month.updatedInSheet) } }
                 single("overview") {
                     HeroCard(summary, onIncome = { goTo(ANCHOR_INCOME) }, onBudget = { goTo(ANCHOR_GROUPS) }, onSurplus = { goTo(ANCHOR_USAGE) })
                 }
@@ -516,6 +522,22 @@ private fun EmptyMonth(modifier: Modifier, loading: Boolean, onCreate: () -> Uni
         }
     }
 }
+
+/** "Atualizado em 28/10/2026 às 15:34 · na planilha" above the month. */
+@Composable
+private fun UpdatedLine(at: Long, inSheet: Boolean) {
+    val time = Instant.ofEpochMilli(at).atZone(ZoneId.systemDefault())
+    Row(Modifier.fillMaxWidth().padding(start = 4.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Icon(Icons.Outlined.Update, null, Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        Spacer(Modifier.width(6.dp))
+        Text(
+            "Atualizado em ${time.format(UPDATED_FORMAT)} · ${if (inSheet) "na planilha" else "no app"}",
+            style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+private val UPDATED_FORMAT = DateTimeFormatter.ofPattern("dd/MM/yyyy 'às' HH:mm")
 
 /** Gradient card at the top: what is left of the income, savings rate and a ring with how much of it is used. */
 @Composable

@@ -107,8 +107,11 @@ interface MonthDao {
     @Query("SELECT * FROM months WHERE user_id = :userId")
     suspend fun all(userId: Long): List<MonthEntity>
 
-    @Query("UPDATE months SET dirty = 1 WHERE id = :id")
-    suspend fun markDirty(id: Long)
+    @Query("UPDATE months SET dirty = 1, updated_at = :now, updated_in_sheet = 0 WHERE id = :id")
+    suspend fun markDirty(id: Long, now: Long = System.currentTimeMillis())
+
+    @Query("UPDATE months SET updated_at = :at, updated_in_sheet = 1 WHERE id = :id")
+    suspend fun markUpdatedInSheet(id: Long, at: Long)
 
     @Query("UPDATE months SET dirty = 0, sheet_version = :version WHERE id = :id")
     suspend fun markSynced(id: Long, version: Long)

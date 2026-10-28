@@ -240,6 +240,8 @@ class FinanceRepository(private val db: AppDatabase, private val onMonthChanged:
         }
         months.insertExpenses(expenses)
         months.markSynced(monthId, sheet.editedAt)
+        // Tabs never edited since the script was installed have no time: use the download time.
+        months.markUpdatedInSheet(monthId, sheet.editedAt.takeIf { it > 0 } ?: System.currentTimeMillis())
         monthId
     }
 

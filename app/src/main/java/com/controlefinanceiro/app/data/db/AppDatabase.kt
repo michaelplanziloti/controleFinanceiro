@@ -30,7 +30,7 @@ class Converters {
         AllowanceEntity::class,
         ExpenseEntity::class,
     ],
-    version = 3,
+    version = 4,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -42,13 +42,21 @@ abstract class AppDatabase : RoomDatabase() {
     companion object {
         fun build(context: Context): AppDatabase =
             Room.databaseBuilder(context, AppDatabase::class.java, "controle_financeiro.db")
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
                 .build()
 
         /**
          * Adds cards and the expense link. Payment methods named like "Cartão Santander" become the
          * card "Santander", and their expenses move to the "Cartão de crédito" payment method.
          */
+        /** When each month last changed, and whether that was in the spreadsheet. */
+        val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `months` ADD COLUMN `updated_at` INTEGER DEFAULT NULL")
+                db.execSQL("ALTER TABLE `months` ADD COLUMN `updated_in_sheet` INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
         /** Sync state of each month with the Google Sheets tab. */
         val MIGRATION_2_3 = object : Migration(2, 3) {
             override fun migrate(db: SupportSQLiteDatabase) {

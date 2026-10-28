@@ -101,6 +101,9 @@ data class MonthEntity(
     @ColumnInfo(name = "sheet_version") val sheetVersion: Long? = null,
     /** Changed in the app since the last send to the spreadsheet. */
     @ColumnInfo(name = "dirty", defaultValue = "0") val dirty: Boolean = false,
+    /** When the month's data last changed (epoch ms), in the app or in the spreadsheet. */
+    @ColumnInfo(name = "updated_at") val updatedAt: Long? = null,
+    @ColumnInfo(name = "updated_in_sheet", defaultValue = "0") val updatedInSheet: Boolean = false,
 )
 
 @Entity(
