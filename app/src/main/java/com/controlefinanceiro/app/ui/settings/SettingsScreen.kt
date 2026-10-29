@@ -25,6 +25,7 @@ import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.outlined.Logout
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.outlined.BeachAccess
 import androidx.compose.material.icons.outlined.Category
 import androidx.compose.material.icons.outlined.CreditCard
 import androidx.compose.material.icons.outlined.DeleteOutline
@@ -97,12 +98,22 @@ enum class SettingsPage(val title: String, val subtitle: String, val icon: Image
     SHEETS("Planilha Google", "Sincronização com a planilha", Icons.Outlined.TableChart),
 }
 
-/** The side menu opened by the three bars: only the settings titles, plus "Sair". */
+/** The side menu opened by the three bars: planning pages, the settings titles, plus "Sair". */
 @Composable
-fun SettingsDrawer(onOpen: (SettingsPage) -> Unit, onLogout: () -> Unit) {
+fun SettingsDrawer(onOpen: (SettingsPage) -> Unit, onLogout: () -> Unit, onVacations: () -> Unit) {
     ModalDrawerSheet(drawerContainerColor = MaterialTheme.colorScheme.surface) {
         Column(Modifier.verticalScroll(rememberScrollState()).padding(vertical = 12.dp)) {
             Text("Controle Financeiro", Modifier.padding(horizontal = 28.dp, vertical = 16.dp), style = MaterialTheme.typography.titleLarge)
+            Text("Planejamento", Modifier.padding(horizontal = 28.dp, vertical = 8.dp), style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+            NavigationDrawerItem(
+                label = { Text("Férias") },
+                icon = { Icon(Icons.Outlined.BeachAccess, null) },
+                selected = false,
+                onClick = onVacations,
+                modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding),
+            )
+            HorizontalDivider(Modifier.padding(horizontal = 28.dp, vertical = 12.dp))
             Text("Ajustes", Modifier.padding(horizontal = 28.dp, vertical = 8.dp), style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
             SettingsPage.entries.forEach { page ->

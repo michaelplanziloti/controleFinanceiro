@@ -135,6 +135,35 @@ data class SubcategoryItemEntity(
     @ColumnInfo(name = "installment_total_cents") val installmentTotalCents: Long? = null,
 )
 
+/**
+ * A vacation of someone in the household: what is needed to calculate its pay (see
+ * domain.Vacation). [postedMonthId] is the month its net value went to as income, if it did.
+ */
+@Entity(
+    tableName = "vacations",
+    foreignKeys = [
+        ForeignKey(entity = UserEntity::class, parentColumns = ["id"], childColumns = ["user_id"], onDelete = ForeignKey.CASCADE),
+        ForeignKey(entity = PersonEntity::class, parentColumns = ["id"], childColumns = ["person_id"], onDelete = ForeignKey.SET_NULL),
+    ],
+    indices = [Index("user_id"), Index("person_id")],
+)
+data class VacationEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    @ColumnInfo(name = "user_id") val userId: Long,
+    @ColumnInfo(name = "person_id") val personId: Long? = null,
+    /** Monthly gross salary. */
+    @ColumnInfo(name = "gross_cents") val grossCents: Long,
+    /** First day off, as epoch day; null while not decided. */
+    @ColumnInfo(name = "start_date") val startDate: Long? = null,
+    @ColumnInfo(name = "days_taken") val daysTaken: Int = 30,
+    @ColumnInfo(name = "days_sold") val daysSold: Int = 0,
+    val dependents: Int = 0,
+    @ColumnInfo(name = "advance_13th") val advance13th: Boolean = false,
+    val note: String = "",
+    @ColumnInfo(name = "posted_month_id") val postedMonthId: Long? = null,
+    @ColumnInfo(name = "created_at") val createdAt: Long = System.currentTimeMillis(),
+)
+
 /** Budget rule: tithe over gross income, the other three over income after tithe. Values in basis points (10000 = 100%). */
 @Entity(
     tableName = "budget_settings",

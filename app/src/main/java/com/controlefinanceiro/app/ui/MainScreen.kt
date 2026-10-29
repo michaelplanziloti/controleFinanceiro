@@ -33,6 +33,8 @@ import com.controlefinanceiro.app.ui.settings.SettingsDrawer
 import com.controlefinanceiro.app.ui.settings.SettingsPage
 import com.controlefinanceiro.app.ui.settings.SettingsPageScreen
 import com.controlefinanceiro.app.ui.settings.SettingsViewModel
+import com.controlefinanceiro.app.ui.vacation.VacationScreen
+import com.controlefinanceiro.app.ui.vacation.VacationViewModel
 import com.controlefinanceiro.app.ui.year.YearScreen
 import com.controlefinanceiro.app.ui.year.YearViewModel
 import kotlinx.coroutines.launch
@@ -57,6 +59,10 @@ fun MainScreen(userId: Long, container: AppContainer) {
 
     var tab by rememberSaveable { mutableStateOf(Tab.MONTH) }
     var page by rememberSaveable { mutableStateOf<SettingsPage?>(null) }
+    var vacations by rememberSaveable { mutableStateOf(false) }
+    val vacationVm: VacationViewModel = viewModel(key = "vacation-$userId", factory = viewModelFactory {
+        initializer { VacationViewModel(userId, container.finance) }
+    })
     val drawer = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     val openMenu: () -> Unit = { scope.launch { drawer.open() } }
@@ -68,11 +74,14 @@ fun MainScreen(userId: Long, container: AppContainer) {
             SettingsDrawer(
                 onOpen = { scope.launch { drawer.close() }; page = it },
                 onLogout = { scope.launch { drawer.close() }; settingsVm.logout() },
+                onVacations = { scope.launch { drawer.close() }; vacations = true },
             )
         },
     ) {
         val current = page
-        if (current != null) {
+        if (vacations) {
+            VacationScreen(vacationVm, onBack = { vacations = false })
+        } else if (current != null) {
             SettingsPageScreen(current, settingsVm, onBack = { page = null })
         } else {
             Scaffold(
@@ -95,7 +104,12 @@ fun MainScreen(userId: Long, container: AppContainer) {
             ) { padding ->
                 when (tab) {
                     Tab.MONTH -> MonthScreen(monthVm, padding, onMenu = openMenu)
-                    Tab.YEAR -> YearScreen(yearVm, padding, onOpenMonth = { monthVm.selectMonth(it); tab = Tab.MONTH }, onMenu = openMenu)
+                    Tab.YEAR -> YearScreen(
+                        yearVm, padding,
+                        onOpenMonth = { monthVm.selectMonth(it); tab = Tab.MONTH },
+                        onMenu = openMenu,
+                        onCreateMonth = { y, m -> monthVm.createMonth(y, m, copyPrevious = true); tab = Tab.MONTH },
+                    )
                 }
             }
         }

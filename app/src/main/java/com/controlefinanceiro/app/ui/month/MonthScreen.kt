@@ -833,6 +833,14 @@ private fun HeroCard(
                     "Poupança ${if (hidden) "••%" else Money.formatPercent(summary.savingsRate)}",
                     color = hero.content, container = hero.tile,
                 )
+                // While there are bills still to pay, how the month closes once they are paid.
+                if (summary.expectedSpentCents != summary.actualCents) {
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "Fechamento previsto: ${if (hidden) HIDDEN_MONEY else Money.format(summary.expectedSurplusCents)}",
+                        style = MaterialTheme.typography.bodySmall, color = hero.muted,
+                    )
+                }
             }
             Spacer(Modifier.width(12.dp))
             UsageRing(if (hidden) 0f else used, ringColor, hero.tile, Modifier.size(104.dp), strokeWidth = 10.dp) {

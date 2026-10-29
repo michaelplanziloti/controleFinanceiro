@@ -31,8 +31,9 @@ class Converters {
         ExpenseEntity::class,
         SubcategoryEntity::class,
         SubcategoryItemEntity::class,
+        VacationEntity::class,
     ],
-    version = 8,
+    version = 9,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -40,17 +41,34 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun userDao(): UserDao
     abstract fun referenceDao(): ReferenceDao
     abstract fun monthDao(): MonthDao
+    abstract fun vacationDao(): VacationDao
 
     companion object {
         fun build(context: Context): AppDatabase =
             Room.databaseBuilder(context, AppDatabase::class.java, "controle_financeiro.db")
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9)
                 .build()
 
         /**
          * Adds cards and the expense link. Payment methods named like "Cartão Santander" become the
          * card "Santander", and their expenses move to the "Cartão de crédito" payment method.
          */
+        /** Vacations, with what their pay is calculated from. */
+        val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `vacations` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `user_id` INTEGER NOT NULL, " +
+                        "`person_id` INTEGER, `gross_cents` INTEGER NOT NULL, `start_date` INTEGER, `days_taken` INTEGER NOT NULL, " +
+                        "`days_sold` INTEGER NOT NULL, `dependents` INTEGER NOT NULL, `advance_13th` INTEGER NOT NULL, `note` TEXT NOT NULL, " +
+                        "`posted_month_id` INTEGER, `created_at` INTEGER NOT NULL, " +
+                        "FOREIGN KEY(`user_id`) REFERENCES `users`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE, " +
+                        "FOREIGN KEY(`person_id`) REFERENCES `people`(`id`) ON UPDATE NO ACTION ON DELETE SET NULL)"
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_vacations_user_id` ON `vacations` (`user_id`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_vacations_person_id` ON `vacations` (`person_id`)")
+            }
+        }
+
         /** Whole value of entries paid in installments. */
         val MIGRATION_7_8 = object : Migration(7, 8) {
             override fun migrate(db: SupportSQLiteDatabase) {

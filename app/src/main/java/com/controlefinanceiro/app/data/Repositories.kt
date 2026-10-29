@@ -15,6 +15,7 @@ import com.controlefinanceiro.app.data.db.PersonEntity
 import com.controlefinanceiro.app.data.db.SubcategoryEntity
 import com.controlefinanceiro.app.data.db.SubcategoryItemEntity
 import com.controlefinanceiro.app.data.db.UserEntity
+import com.controlefinanceiro.app.data.db.VacationEntity
 import com.controlefinanceiro.app.data.sheets.MonthSnapshot
 import com.controlefinanceiro.app.data.sheets.SheetMonth
 import com.controlefinanceiro.app.data.sheets.cardFromPayment
@@ -117,6 +118,31 @@ class FinanceRepository(private val db: AppDatabase, private val onMonthChanged:
     fun observeItems(monthId: Long) = months.observeItems(monthId)
     fun observeAllExpenses(userId: Long) = months.observeAllExpenses(userId)
     fun observeAllItems(userId: Long) = months.observeAllItems(userId)
+    fun observeAllIncomes(userId: Long) = months.observeAllIncomes(userId)
+    fun observeVacations(userId: Long) = db.vacationDao().observe(userId)
+
+    suspend fun saveVacation(vacation: VacationEntity): Long =
+        db.vacationDao().upsert(vacation).let { if (it == -1L) vacation.id else it }
+
+    suspend fun deleteVacation(vacation: VacationEntity) = db.vacationDao().delete(vacation)
+
+    /**
+     * Puts the vacation's net pay (and the 13th advance, when chosen) as income in the month it is
+     * paid, and remembers that month so it is not posted twice. Returns false when that month does
+     * not exist yet.
+     */
+    suspend fun postVacation(vacation: VacationEntity, userId: Long, year: Int, month: Int, lines: List<Pair<String, Long>>): Boolean {
+        val target = months.find(userId, year, month) ?: return false
+        db.withTransaction {
+            lines.filter { it.second != 0L }.forEach { (source, cents) ->
+                months.upsertIncome(IncomeEntity(monthId = target.id, personId = vacation.personId, source = source, amountCents = cents))
+            }
+            db.vacationDao().upsert(vacation.copy(postedMonthId = target.id))
+        }
+        changed(target.id)
+        return true
+    }
+    fun observeAllAllowances(userId: Long) = months.observeAllAllowances(userId)
 
     /**
      * Creates a month. When [copyPrevious] is true it brings incomes, allowances and the recurring

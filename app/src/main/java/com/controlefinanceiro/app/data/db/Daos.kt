@@ -171,6 +171,12 @@ interface MonthDao {
     @Query("SELECT e.* FROM expenses e JOIN months m ON m.id = e.month_id WHERE m.user_id = :userId")
     fun observeAllExpenses(userId: Long): Flow<List<ExpenseEntity>>
 
+    @Query("SELECT i.* FROM incomes i JOIN months m ON m.id = i.month_id WHERE m.user_id = :userId")
+    fun observeAllIncomes(userId: Long): Flow<List<IncomeEntity>>
+
+    @Query("SELECT a.* FROM allowances a JOIN months m ON m.id = a.month_id WHERE m.user_id = :userId")
+    fun observeAllAllowances(userId: Long): Flow<List<AllowanceEntity>>
+
     @Query("SELECT i.* FROM subcategory_items i JOIN expenses e ON e.id = i.expense_id JOIN months m ON m.id = e.month_id WHERE m.user_id = :userId")
     fun observeAllItems(userId: Long): Flow<List<SubcategoryItemEntity>>
 
@@ -262,4 +268,16 @@ interface MonthDao {
 
     @Query("SELECT e.* FROM expenses e JOIN months m ON m.id = e.month_id WHERE m.user_id = :userId AND m.year = :year")
     fun observeYearExpenses(userId: Long, year: Int): Flow<List<ExpenseEntity>>
+}
+
+@Dao
+interface VacationDao {
+    @Query("SELECT * FROM vacations WHERE user_id = :userId ORDER BY start_date IS NULL, start_date DESC, created_at DESC")
+    fun observe(userId: Long): Flow<List<VacationEntity>>
+
+    @Upsert
+    suspend fun upsert(vacation: VacationEntity): Long
+
+    @Delete
+    suspend fun delete(vacation: VacationEntity)
 }

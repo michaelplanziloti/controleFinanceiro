@@ -55,6 +55,12 @@ data class MonthSummary(
     /** Income minus what the budget actually spent (extras are outside the budget). */
     val surplusCents: Long get() = incomeCents - actualCents
 
+    /** What the budget will have spent once everything planned is paid (more, where it already went over). */
+    val expectedSpentCents: Long get() = groups.sumOf { maxOf(it.plannedCents, it.actualCents) }
+
+    /** How the month should close: income minus [expectedSpentCents]. */
+    val expectedSurplusCents: Long get() = incomeCents - expectedSpentCents
+
     val savingsRate: Double
         get() {
             if (incomeCents == 0L) return 0.0
