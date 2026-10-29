@@ -2,9 +2,13 @@ package com.controlefinanceiro.app.ui
 
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BarChart
+import androidx.compose.material.icons.filled.BeachAccess
 import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.filled.Paid
 import androidx.compose.material.icons.outlined.BarChart
+import androidx.compose.material.icons.outlined.BeachAccess
 import androidx.compose.material.icons.outlined.CalendarMonth
+import androidx.compose.material.icons.outlined.Paid
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -29,11 +33,13 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import com.controlefinanceiro.app.AppContainer
 import com.controlefinanceiro.app.ui.month.MonthScreen
 import com.controlefinanceiro.app.ui.month.MonthViewModel
+import com.controlefinanceiro.app.ui.plr.PlrTab
+import com.controlefinanceiro.app.ui.plr.PlrViewModel
 import com.controlefinanceiro.app.ui.settings.SettingsDrawer
 import com.controlefinanceiro.app.ui.settings.SettingsPage
 import com.controlefinanceiro.app.ui.settings.SettingsPageScreen
 import com.controlefinanceiro.app.ui.settings.SettingsViewModel
-import com.controlefinanceiro.app.ui.vacation.VacationScreen
+import com.controlefinanceiro.app.ui.vacation.VacationTab
 import com.controlefinanceiro.app.ui.vacation.VacationViewModel
 import com.controlefinanceiro.app.ui.year.YearScreen
 import com.controlefinanceiro.app.ui.year.YearViewModel
@@ -42,6 +48,8 @@ import kotlinx.coroutines.launch
 private enum class Tab(val label: String, val icon: ImageVector, val selectedIcon: ImageVector) {
     MONTH("Mês", Icons.Outlined.CalendarMonth, Icons.Filled.CalendarMonth),
     YEAR("Ano", Icons.Outlined.BarChart, Icons.Filled.BarChart),
+    VACATION("Férias", Icons.Outlined.BeachAccess, Icons.Filled.BeachAccess),
+    PLR("PLR", Icons.Outlined.Paid, Icons.Filled.Paid),
 }
 
 @Composable
@@ -59,9 +67,11 @@ fun MainScreen(userId: Long, container: AppContainer) {
 
     var tab by rememberSaveable { mutableStateOf(Tab.MONTH) }
     var page by rememberSaveable { mutableStateOf<SettingsPage?>(null) }
-    var vacations by rememberSaveable { mutableStateOf(false) }
     val vacationVm: VacationViewModel = viewModel(key = "vacation-$userId", factory = viewModelFactory {
         initializer { VacationViewModel(userId, container.finance) }
+    })
+    val plrVm: PlrViewModel = viewModel(key = "plr-$userId", factory = viewModelFactory {
+        initializer { PlrViewModel(userId, container.finance) }
     })
     val drawer = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
@@ -74,14 +84,13 @@ fun MainScreen(userId: Long, container: AppContainer) {
             SettingsDrawer(
                 onOpen = { scope.launch { drawer.close() }; page = it },
                 onLogout = { scope.launch { drawer.close() }; settingsVm.logout() },
-                onVacations = { scope.launch { drawer.close() }; vacations = true },
+                onVacations = { scope.launch { drawer.close() }; page = null; tab = Tab.VACATION },
+                onPlr = { scope.launch { drawer.close() }; page = null; tab = Tab.PLR },
             )
         },
     ) {
         val current = page
-        if (vacations) {
-            VacationScreen(vacationVm, onBack = { vacations = false })
-        } else if (current != null) {
+        if (current != null) {
             SettingsPageScreen(current, settingsVm, onBack = { page = null })
         } else {
             Scaffold(
@@ -110,6 +119,8 @@ fun MainScreen(userId: Long, container: AppContainer) {
                         onMenu = openMenu,
                         onCreateMonth = { y, m -> monthVm.createMonth(y, m, copyPrevious = true); tab = Tab.MONTH },
                     )
+                    Tab.VACATION -> VacationTab(vacationVm, padding, onMenu = openMenu)
+                    Tab.PLR -> PlrTab(plrVm, padding, onMenu = openMenu)
                 }
             }
         }

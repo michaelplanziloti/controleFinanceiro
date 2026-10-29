@@ -32,8 +32,11 @@ class Converters {
         SubcategoryEntity::class,
         SubcategoryItemEntity::class,
         VacationEntity::class,
+        PlrEntity::class,
+        FundIncomeEntity::class,
+        FundExpenseEntity::class,
     ],
-    version = 9,
+    version = 10,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -42,17 +45,52 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun referenceDao(): ReferenceDao
     abstract fun monthDao(): MonthDao
     abstract fun vacationDao(): VacationDao
+    abstract fun fundDao(): FundDao
 
     companion object {
         fun build(context: Context): AppDatabase =
             Room.databaseBuilder(context, AppDatabase::class.java, "controle_financeiro.db")
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10)
                 .build()
 
         /**
          * Adds cards and the expense link. Payment methods named like "Cartão Santander" become the
          * card "Santander", and their expenses move to the "Cartão de crédito" payment method.
          */
+        /** PLRs, and the money and spending of each vacation and PLR, apart from the months. */
+        val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `plrs` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `user_id` INTEGER NOT NULL, " +
+                        "`person_id` INTEGER, `title` TEXT NOT NULL, `gross_cents` INTEGER NOT NULL, `pay_date` INTEGER, " +
+                        "`earlier_cents` INTEGER NOT NULL, `other_discounts_cents` INTEGER NOT NULL, `note` TEXT NOT NULL, " +
+                        "`posted_month_id` INTEGER, `created_at` INTEGER NOT NULL, " +
+                        "FOREIGN KEY(`user_id`) REFERENCES `users`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE , " +
+                        "FOREIGN KEY(`person_id`) REFERENCES `people`(`id`) ON UPDATE NO ACTION ON DELETE SET NULL )"
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_plrs_user_id` ON `plrs` (`user_id`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_plrs_person_id` ON `plrs` (`person_id`)")
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `fund_incomes` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `kind` TEXT NOT NULL, " +
+                        "`owner_id` INTEGER NOT NULL, `source` TEXT NOT NULL, `amount_cents` INTEGER NOT NULL, `created_at` INTEGER NOT NULL)"
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_fund_incomes_kind_owner_id` ON `fund_incomes` (`kind`, `owner_id`)")
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `fund_expenses` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `kind` TEXT NOT NULL, " +
+                        "`owner_id` INTEGER NOT NULL, `description` TEXT NOT NULL, `category_id` INTEGER, `payment_method_id` INTEGER, " +
+                        "`card_id` INTEGER, `planned_cents` INTEGER NOT NULL, `paid_cents` INTEGER NOT NULL, `is_paid` INTEGER NOT NULL, " +
+                        "`date` INTEGER, `created_at` INTEGER NOT NULL, " +
+                        "FOREIGN KEY(`category_id`) REFERENCES `categories`(`id`) ON UPDATE NO ACTION ON DELETE SET NULL , " +
+                        "FOREIGN KEY(`payment_method_id`) REFERENCES `payment_methods`(`id`) ON UPDATE NO ACTION ON DELETE SET NULL , " +
+                        "FOREIGN KEY(`card_id`) REFERENCES `cards`(`id`) ON UPDATE NO ACTION ON DELETE SET NULL )"
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_fund_expenses_kind_owner_id` ON `fund_expenses` (`kind`, `owner_id`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_fund_expenses_category_id` ON `fund_expenses` (`category_id`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_fund_expenses_payment_method_id` ON `fund_expenses` (`payment_method_id`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_fund_expenses_card_id` ON `fund_expenses` (`card_id`)")
+            }
+        }
+
         /** Vacations, with what their pay is calculated from. */
         val MIGRATION_8_9 = object : Migration(8, 9) {
             override fun migrate(db: SupportSQLiteDatabase) {

@@ -281,3 +281,40 @@ interface VacationDao {
     @Delete
     suspend fun delete(vacation: VacationEntity)
 }
+
+/** PLRs, and the money and spending of the vacation and PLR tabs. */
+@Dao
+interface FundDao {
+    @Query("SELECT * FROM plrs WHERE user_id = :userId ORDER BY pay_date IS NULL, pay_date DESC, created_at DESC")
+    fun observePlrs(userId: Long): Flow<List<PlrEntity>>
+
+    @Upsert
+    suspend fun upsertPlr(plr: PlrEntity): Long
+
+    @Delete
+    suspend fun deletePlr(plr: PlrEntity)
+
+    @Query("SELECT * FROM fund_incomes WHERE kind = :kind AND owner_id = :ownerId ORDER BY created_at")
+    fun observeIncomes(kind: FundKind, ownerId: Long): Flow<List<FundIncomeEntity>>
+
+    @Upsert
+    suspend fun upsertIncome(income: FundIncomeEntity)
+
+    @Delete
+    suspend fun deleteIncome(income: FundIncomeEntity)
+
+    @Query("SELECT * FROM fund_expenses WHERE kind = :kind AND owner_id = :ownerId ORDER BY created_at DESC")
+    fun observeExpenses(kind: FundKind, ownerId: Long): Flow<List<FundExpenseEntity>>
+
+    @Upsert
+    suspend fun upsertExpense(expense: FundExpenseEntity)
+
+    @Delete
+    suspend fun deleteExpense(expense: FundExpenseEntity)
+
+    @Query("DELETE FROM fund_incomes WHERE kind = :kind AND owner_id = :ownerId")
+    suspend fun deleteIncomesOf(kind: FundKind, ownerId: Long)
+
+    @Query("DELETE FROM fund_expenses WHERE kind = :kind AND owner_id = :ownerId")
+    suspend fun deleteExpensesOf(kind: FundKind, ownerId: Long)
+}

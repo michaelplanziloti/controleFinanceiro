@@ -164,6 +164,75 @@ data class VacationEntity(
     @ColumnInfo(name = "created_at") val createdAt: Long = System.currentTimeMillis(),
 )
 
+/** A PLR (profit sharing) payment; its tax uses the yearly PLR table (see domain.Plr). */
+@Entity(
+    tableName = "plrs",
+    foreignKeys = [
+        ForeignKey(entity = UserEntity::class, parentColumns = ["id"], childColumns = ["user_id"], onDelete = ForeignKey.CASCADE),
+        ForeignKey(entity = PersonEntity::class, parentColumns = ["id"], childColumns = ["person_id"], onDelete = ForeignKey.SET_NULL),
+    ],
+    indices = [Index("user_id"), Index("person_id")],
+)
+data class PlrEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    @ColumnInfo(name = "user_id") val userId: Long,
+    @ColumnInfo(name = "person_id") val personId: Long? = null,
+    val title: String = "PLR",
+    @ColumnInfo(name = "gross_cents") val grossCents: Long,
+    /** Day it is paid, as epoch day; null while unknown. */
+    @ColumnInfo(name = "pay_date") val payDate: Long? = null,
+    /** PLR already received earlier in the same year, which moves this one up the yearly table. */
+    @ColumnInfo(name = "earlier_cents") val earlierCents: Long = 0,
+    /** Other discounts on the payslip (e.g. union fee). */
+    @ColumnInfo(name = "other_discounts_cents") val otherDiscountsCents: Long = 0,
+    val note: String = "",
+    @ColumnInfo(name = "posted_month_id") val postedMonthId: Long? = null,
+    @ColumnInfo(name = "created_at") val createdAt: Long = System.currentTimeMillis(),
+)
+
+/** Extra money kept apart from the months, each with its own tab. */
+enum class FundKind { VACATION, PLR }
+
+/**
+ * Money that goes into a vacation or PLR besides its pay (e.g. what was saved for the trip).
+ * [ownerId] is the id of the vacation or PLR of [kind]; its rows go when it is deleted.
+ */
+@Entity(tableName = "fund_incomes", indices = [Index(value = ["kind", "owner_id"])])
+data class FundIncomeEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val kind: FundKind,
+    @ColumnInfo(name = "owner_id") val ownerId: Long,
+    val source: String,
+    @ColumnInfo(name = "amount_cents") val amountCents: Long,
+    @ColumnInfo(name = "created_at") val createdAt: Long = System.currentTimeMillis(),
+)
+
+/** Something a vacation or PLR pays for (tickets, hotel, a new phone...), apart from the months' budget. */
+@Entity(
+    tableName = "fund_expenses",
+    foreignKeys = [
+        ForeignKey(entity = CategoryEntity::class, parentColumns = ["id"], childColumns = ["category_id"], onDelete = ForeignKey.SET_NULL),
+        ForeignKey(entity = PaymentMethodEntity::class, parentColumns = ["id"], childColumns = ["payment_method_id"], onDelete = ForeignKey.SET_NULL),
+        ForeignKey(entity = CardEntity::class, parentColumns = ["id"], childColumns = ["card_id"], onDelete = ForeignKey.SET_NULL),
+    ],
+    indices = [Index(value = ["kind", "owner_id"]), Index("category_id"), Index("payment_method_id"), Index("card_id")],
+)
+data class FundExpenseEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val kind: FundKind,
+    @ColumnInfo(name = "owner_id") val ownerId: Long,
+    val description: String,
+    @ColumnInfo(name = "category_id") val categoryId: Long? = null,
+    @ColumnInfo(name = "payment_method_id") val paymentMethodId: Long? = null,
+    @ColumnInfo(name = "card_id") val cardId: Long? = null,
+    @ColumnInfo(name = "planned_cents") val plannedCents: Long = 0,
+    @ColumnInfo(name = "paid_cents") val paidCents: Long = 0,
+    @ColumnInfo(name = "is_paid") val isPaid: Boolean = false,
+    /** Day of the purchase as epoch day, or null. */
+    val date: Long? = null,
+    @ColumnInfo(name = "created_at") val createdAt: Long = System.currentTimeMillis(),
+)
+
 /** Budget rule: tithe over gross income, the other three over income after tithe. Values in basis points (10000 = 100%). */
 @Entity(
     tableName = "budget_settings",

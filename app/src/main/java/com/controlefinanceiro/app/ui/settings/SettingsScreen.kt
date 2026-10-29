@@ -30,6 +30,7 @@ import androidx.compose.material.icons.outlined.Category
 import androidx.compose.material.icons.outlined.CreditCard
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.Label
+import androidx.compose.material.icons.outlined.Paid
 import androidx.compose.material.icons.outlined.Palette
 import androidx.compose.material.icons.outlined.People
 import androidx.compose.material.icons.outlined.PieChart
@@ -100,7 +101,7 @@ enum class SettingsPage(val title: String, val subtitle: String, val icon: Image
 
 /** The side menu opened by the three bars: planning pages, the settings titles, plus "Sair". */
 @Composable
-fun SettingsDrawer(onOpen: (SettingsPage) -> Unit, onLogout: () -> Unit, onVacations: () -> Unit) {
+fun SettingsDrawer(onOpen: (SettingsPage) -> Unit, onLogout: () -> Unit, onVacations: () -> Unit, onPlr: () -> Unit) {
     ModalDrawerSheet(drawerContainerColor = MaterialTheme.colorScheme.surface) {
         Column(Modifier.verticalScroll(rememberScrollState()).padding(vertical = 12.dp)) {
             Text("Controle Financeiro", Modifier.padding(horizontal = 28.dp, vertical = 16.dp), style = MaterialTheme.typography.titleLarge)
@@ -111,6 +112,13 @@ fun SettingsDrawer(onOpen: (SettingsPage) -> Unit, onLogout: () -> Unit, onVacat
                 icon = { Icon(Icons.Outlined.BeachAccess, null) },
                 selected = false,
                 onClick = onVacations,
+                modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding),
+            )
+            NavigationDrawerItem(
+                label = { Text("PLR") },
+                icon = { Icon(Icons.Outlined.Paid, null) },
+                selected = false,
+                onClick = onPlr,
                 modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding),
             )
             HorizontalDivider(Modifier.padding(horizontal = 28.dp, vertical = 12.dp))

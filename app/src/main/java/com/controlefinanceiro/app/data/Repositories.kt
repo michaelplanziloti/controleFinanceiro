@@ -16,6 +16,10 @@ import com.controlefinanceiro.app.data.db.SubcategoryEntity
 import com.controlefinanceiro.app.data.db.SubcategoryItemEntity
 import com.controlefinanceiro.app.data.db.UserEntity
 import com.controlefinanceiro.app.data.db.VacationEntity
+import com.controlefinanceiro.app.data.db.FundExpenseEntity
+import com.controlefinanceiro.app.data.db.FundIncomeEntity
+import com.controlefinanceiro.app.data.db.FundKind
+import com.controlefinanceiro.app.data.db.PlrEntity
 import com.controlefinanceiro.app.data.sheets.MonthSnapshot
 import com.controlefinanceiro.app.data.sheets.SheetMonth
 import com.controlefinanceiro.app.data.sheets.cardFromPayment
@@ -124,7 +128,48 @@ class FinanceRepository(private val db: AppDatabase, private val onMonthChanged:
     suspend fun saveVacation(vacation: VacationEntity): Long =
         db.vacationDao().upsert(vacation).let { if (it == -1L) vacation.id else it }
 
-    suspend fun deleteVacation(vacation: VacationEntity) = db.vacationDao().delete(vacation)
+    /** Deletes the vacation with its money and spending. */
+    suspend fun deleteVacation(vacation: VacationEntity) = db.withTransaction {
+        deleteFundRows(FundKind.VACATION, vacation.id)
+        db.vacationDao().delete(vacation)
+    }
+
+    // ---------- PLR and the money of the vacation and PLR tabs ----------
+
+    private val funds = db.fundDao()
+
+    fun observePlrs(userId: Long) = funds.observePlrs(userId)
+
+    suspend fun savePlr(plr: PlrEntity): Long = funds.upsertPlr(plr).let { if (it == -1L) plr.id else it }
+
+    /** Deletes the PLR with its money and spending. */
+    suspend fun deletePlr(plr: PlrEntity) = db.withTransaction {
+        deleteFundRows(FundKind.PLR, plr.id)
+        funds.deletePlr(plr)
+    }
+
+    private suspend fun deleteFundRows(kind: FundKind, ownerId: Long) {
+        funds.deleteIncomesOf(kind, ownerId)
+        funds.deleteExpensesOf(kind, ownerId)
+    }
+
+    fun observeFundIncomes(kind: FundKind, ownerId: Long) = funds.observeIncomes(kind, ownerId)
+    fun observeFundExpenses(kind: FundKind, ownerId: Long) = funds.observeExpenses(kind, ownerId)
+    suspend fun saveFundIncome(income: FundIncomeEntity) = funds.upsertIncome(income)
+    suspend fun deleteFundIncome(income: FundIncomeEntity) = funds.deleteIncome(income)
+    suspend fun saveFundExpense(expense: FundExpenseEntity) = funds.upsertExpense(expense)
+    suspend fun deleteFundExpense(expense: FundExpenseEntity) = funds.deleteExpense(expense)
+
+    /** Puts a PLR's net value as income in the month it is paid; false when that month does not exist yet. */
+    suspend fun postPlr(plr: PlrEntity, userId: Long, year: Int, month: Int, source: String, cents: Long): Boolean {
+        val target = months.find(userId, year, month) ?: return false
+        db.withTransaction {
+            months.upsertIncome(IncomeEntity(monthId = target.id, personId = plr.personId, source = source, amountCents = cents))
+            funds.upsertPlr(plr.copy(postedMonthId = target.id))
+        }
+        changed(target.id)
+        return true
+    }
 
     /**
      * Puts the vacation's net pay (and the 13th advance, when chosen) as income in the month it is
