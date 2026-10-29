@@ -18,6 +18,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -54,7 +55,7 @@ import com.controlefinanceiro.app.ui.theme.LocalMoneyColors
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun YearScreen(viewModel: YearViewModel, contentPadding: PaddingValues, onOpenMonth: (Long) -> Unit) {
+fun YearScreen(viewModel: YearViewModel, contentPadding: PaddingValues, onOpenMonth: (Long) -> Unit, onMenu: () -> Unit) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     Scaffold(
         modifier = Modifier.padding(bottom = contentPadding.calculateBottomPadding()),
@@ -64,7 +65,12 @@ fun YearScreen(viewModel: YearViewModel, contentPadding: PaddingValues, onOpenMo
             CenterAlignedTopAppBar(
                 colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = MaterialTheme.colorScheme.background),
                 title = { Text("${state.year}", style = MaterialTheme.typography.titleLarge) },
-                navigationIcon = { IconButton(onClick = { viewModel.step(-1) }) { Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, "Ano anterior") } },
+                navigationIcon = {
+                    Row {
+                        IconButton(onClick = onMenu) { Icon(Icons.Default.Menu, "Menu") }
+                        IconButton(onClick = { viewModel.step(-1) }) { Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, "Ano anterior") }
+                    }
+                },
                 actions = { IconButton(onClick = { viewModel.step(1) }) { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, "Próximo ano") } },
             )
         },

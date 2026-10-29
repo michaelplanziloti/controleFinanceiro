@@ -20,60 +20,64 @@ import androidx.compose.ui.unit.sp
 import com.controlefinanceiro.app.data.ThemeMode
 import com.controlefinanceiro.app.data.db.ExpenseBlock
 
-// Brand: deep emerald on calm, slightly warm neutrals.
+// Brand: black and yellow, in the line of investment apps like XP. Yellow is the accent; in light
+// mode the main color is near-black (buttons in black with yellow text), since yellow text on
+// white is hard to read.
+private val XpYellow = Color(0xFFFFD400)
+
 private val LightColors = lightColorScheme(
-    primary = Color(0xFF0B6E5F),
-    onPrimary = Color.White,
-    primaryContainer = Color(0xFFCDEDE4),
-    onPrimaryContainer = Color(0xFF00201A),
-    secondary = Color(0xFF4B635C),
+    primary = Color(0xFF151515),
+    onPrimary = XpYellow,
+    primaryContainer = XpYellow,
+    onPrimaryContainer = Color(0xFF151515),
+    secondary = Color(0xFF555555),
     onSecondary = Color.White,
-    secondaryContainer = Color(0xFFDDE8E3),
-    onSecondaryContainer = Color(0xFF07201A),
-    tertiary = Color(0xFFB4610F),
-    tertiaryContainer = Color(0xFFFFDDBF),
-    background = Color(0xFFF4F6F5),
-    onBackground = Color(0xFF151B19),
-    surface = Color(0xFFF4F6F5),
-    onSurface = Color(0xFF151B19),
-    surfaceVariant = Color(0xFFE3E9E6),
-    onSurfaceVariant = Color(0xFF5B6662),
+    secondaryContainer = Color(0xFFECECEC),
+    onSecondaryContainer = Color(0xFF151515),
+    tertiary = Color(0xFF9A6B00),
+    tertiaryContainer = Color(0xFFFFF0B3),
+    background = Color(0xFFF4F4F4),
+    onBackground = Color(0xFF151515),
+    surface = Color(0xFFF4F4F4),
+    onSurface = Color(0xFF151515),
+    surfaceVariant = Color(0xFFE6E6E6),
+    onSurfaceVariant = Color(0xFF616161),
     surfaceContainerLowest = Color.White,
     surfaceContainerLow = Color.White,
-    surfaceContainer = Color(0xFFEDF1EF),
-    surfaceContainerHigh = Color(0xFFE6EBE9),
-    surfaceContainerHighest = Color(0xFFDFE5E2),
-    outline = Color(0xFF8A9590),
-    outlineVariant = Color(0xFFDCE3E0),
-    error = Color(0xFFBA2D24),
+    surfaceContainer = Color(0xFFEDEDED),
+    surfaceContainerHigh = Color(0xFFE6E6E6),
+    surfaceContainerHighest = Color(0xFFDDDDDD),
+    outline = Color(0xFF8C8C8C),
+    outlineVariant = Color(0xFFDDDDDD),
+    error = Color(0xFFC62828),
     errorContainer = Color(0xFFFFDAD5),
     onErrorContainer = Color(0xFF410001),
 )
 
 private val DarkColors = darkColorScheme(
-    primary = Color(0xFF7DD8C2),
-    onPrimary = Color(0xFF00382E),
-    primaryContainer = Color(0xFF0F5146),
-    onPrimaryContainer = Color(0xFFB5F1E1),
-    secondary = Color(0xFFB3CCC4),
-    onSecondary = Color(0xFF1E352F),
-    secondaryContainer = Color(0xFF2A3D38),
-    onSecondaryContainer = Color(0xFFCFE8DF),
-    tertiary = Color(0xFFFFB878),
-    tertiaryContainer = Color(0xFF5C3300),
-    background = Color(0xFF0D1110),
-    onBackground = Color(0xFFE1E6E4),
-    surface = Color(0xFF0D1110),
-    onSurface = Color(0xFFE1E6E4),
-    surfaceVariant = Color(0xFF2A322F),
-    onSurfaceVariant = Color(0xFFAAB5B0),
-    surfaceContainerLowest = Color(0xFF090C0B),
-    surfaceContainerLow = Color(0xFF151A19),
-    surfaceContainer = Color(0xFF1A201E),
-    surfaceContainerHigh = Color(0xFF232A28),
-    surfaceContainerHighest = Color(0xFF2D3532),
-    outline = Color(0xFF75807B),
-    outlineVariant = Color(0xFF2A322F),
+    primary = XpYellow,
+    onPrimary = Color(0xFF111111),
+    primaryContainer = XpYellow,
+    onPrimaryContainer = Color(0xFF111111),
+    secondary = Color(0xFFBDBDBD),
+    onSecondary = Color(0xFF111111),
+    secondaryContainer = Color(0xFF2A2A2A),
+    onSecondaryContainer = Color(0xFFEDEDED),
+    tertiary = Color(0xFFFFC44D),
+    tertiaryContainer = Color(0xFF4A3A00),
+    background = Color(0xFF0B0B0B),
+    onBackground = Color(0xFFF2F2F2),
+    surface = Color(0xFF0B0B0B),
+    onSurface = Color(0xFFF2F2F2),
+    surfaceVariant = Color(0xFF262626),
+    onSurfaceVariant = Color(0xFFA8A8A8),
+    surfaceContainerLowest = Color(0xFF060606),
+    surfaceContainerLow = Color(0xFF161616),
+    surfaceContainer = Color(0xFF1C1C1C),
+    surfaceContainerHigh = Color(0xFF242424),
+    surfaceContainerHighest = Color(0xFF2E2E2E),
+    outline = Color(0xFF707070),
+    outlineVariant = Color(0xFF2A2A2A),
     error = Color(0xFFFF8A7E),
     errorContainer = Color(0xFF5C1510),
     onErrorContainer = Color(0xFFFFDAD5),
@@ -100,11 +104,11 @@ data class BlockColors(
 }
 
 private val LightBlocks = BlockColors(
-    tithe = Color(0xFF8E6A12), fixed = Color(0xFF2F5D8A), couple = Color(0xFF1F8FB0),
+    tithe = Color(0xFF9A6B00), fixed = Color(0xFF2F5D8A), couple = Color(0xFF1F8FB0),
     personal = Color(0xFF7A4BB0), investment = Color(0xFF13855F), extra = Color(0xFFC2611A),
 )
 private val DarkBlocks = BlockColors(
-    tithe = Color(0xFFE8C46A), fixed = Color(0xFF9CC2EC), couple = Color(0xFF7FD0EA),
+    tithe = Color(0xFFFFD400), fixed = Color(0xFF9CC2EC), couple = Color(0xFF7FD0EA),
     personal = Color(0xFFC9A6F2), investment = Color(0xFF79DBB0), extra = Color(0xFFF6AE76),
 )
 
@@ -123,13 +127,14 @@ val LocalMoneyColors = staticCompositionLocalOf { LightMoney }
 @Immutable
 data class HeroColors(val brush: Brush, val content: Color, val muted: Color, val tile: Color)
 
+// The month and year overview cards are black in both modes, with white numbers, like XP's cards.
 private val LightHero = HeroColors(
-    brush = Brush.linearGradient(listOf(Color(0xFF0B6E5F), Color(0xFF0F4C5C))),
-    content = Color.White, muted = Color.White.copy(alpha = 0.72f), tile = Color.White.copy(alpha = 0.12f),
+    brush = Brush.linearGradient(listOf(Color(0xFF111111), Color(0xFF2B2B2B))),
+    content = Color.White, muted = Color.White.copy(alpha = 0.7f), tile = Color.White.copy(alpha = 0.1f),
 )
 private val DarkHero = HeroColors(
-    brush = Brush.linearGradient(listOf(Color(0xFF0F5146), Color(0xFF123744))),
-    content = Color(0xFFE9FFF8), muted = Color(0xFFE9FFF8).copy(alpha = 0.7f), tile = Color.White.copy(alpha = 0.08f),
+    brush = Brush.linearGradient(listOf(Color(0xFF1E1E1E), Color(0xFF141414))),
+    content = Color.White, muted = Color.White.copy(alpha = 0.68f), tile = Color.White.copy(alpha = 0.08f),
 )
 
 val LocalHeroColors = staticCompositionLocalOf { LightHero }

@@ -114,6 +114,8 @@ class FinanceRepository(private val db: AppDatabase, private val onMonthChanged:
     fun observeYearExpenses(userId: Long, year: Int) = months.observeYearExpenses(userId, year)
     fun observeSubcategories(userId: Long) = ref.observeSubcategories(userId)
     fun observeItems(monthId: Long) = months.observeItems(monthId)
+    fun observeAllExpenses(userId: Long) = months.observeAllExpenses(userId)
+    fun observeAllItems(userId: Long) = months.observeAllItems(userId)
 
     /**
      * Creates a month. When [copyPrevious] is true it brings incomes, allowances and the recurring
@@ -334,6 +336,13 @@ class FinanceRepository(private val db: AppDatabase, private val onMonthChanged:
     suspend fun importFromSheet(userId: Long, sheet: SheetMonth): Long = db.withTransaction {
         val monthId = months.find(userId, sheet.year, sheet.month)?.id
             ?: months.insert(MonthEntity(userId = userId, year = sheet.year, month = sheet.month))
+        // Rows and items that come back from the sheet keep the time they were first added.
+        val oldRows = months.expenses(monthId)
+        val rowTimes = oldRows.groupBy { it.block.name + "|" + it.description.nameKey() }.mapValues { (_, l) -> l.map { it.createdAt }.toMutableList() }
+        val rowNames = oldRows.associate { it.id to it.description.nameKey() }
+        val itemTimes = months.items(monthId).groupBy { "${rowNames[it.expenseId]}|${it.description.nameKey()}|${it.amountCents}|${it.date}" }
+            .mapValues { (_, l) -> l.map { it.createdAt }.toMutableList() }
+        val now = System.currentTimeMillis()
         months.deleteIncomes(monthId)
         months.deleteAllowances(monthId)
         months.deleteExpenses(monthId)
@@ -365,6 +374,7 @@ class FinanceRepository(private val db: AppDatabase, private val onMonthChanged:
                 isPaid = e.paid,
                 sortOrder = index,
                 subcategoryId = subcategories[e.description.nameKey()]?.id,
+                createdAt = rowTimes[e.block.name + "|" + e.description.nameKey()]?.removeFirstOrNull() ?: now,
             )
         }
         val ids = months.insertExpenses(expenses)
@@ -381,7 +391,8 @@ class FinanceRepository(private val db: AppDatabase, private val onMonthChanged:
                 ).also { rows[key] = it }
             }
             months.insertItems(items.map {
-                SubcategoryItemEntity(expenseId = rowId, description = it.description, date = it.date, amountCents = it.amountCents, onDay15 = it.onDay15)
+                val time = itemTimes["$key|${it.description.nameKey()}|${it.amountCents}|${it.date}"]?.removeFirstOrNull() ?: now
+                SubcategoryItemEntity(expenseId = rowId, description = it.description, date = it.date, amountCents = it.amountCents, onDay15 = it.onDay15, createdAt = time)
             })
         }
         val sumsChanged = rows.values.distinct().filter { months.itemsOf(it).isNotEmpty() }.count { rowId ->
@@ -465,6 +476,10 @@ class FinanceRepository(private val db: AppDatabase, private val onMonthChanged:
     suspend fun addPerson(userId: Long, name: String, order: Int) =
         ref.insertPerson(PersonEntity(userId = userId, name = name.trim(), sortOrder = order))
     suspend fun deletePerson(person: PersonEntity) = ref.deletePerson(person)
+    suspend fun renamePerson(person: PersonEntity, name: String) = ref.updatePerson(person.copy(name = name.trim()))
+    suspend fun renameCategory(category: CategoryEntity, name: String) = ref.updateCategory(category.copy(name = name.trim()))
+    suspend fun renamePaymentMethod(method: PaymentMethodEntity, name: String) = ref.updatePaymentMethod(method.copy(name = name.trim()))
+    suspend fun renameCard(card: CardEntity, name: String) = ref.updateCard(card.copy(name = name.trim()))
     suspend fun addCategory(userId: Long, name: String) = ref.insertCategories(listOf(CategoryEntity(userId = userId, name = name.trim())))
     suspend fun deleteCategory(category: CategoryEntity) = ref.deleteCategory(category)
     suspend fun addPaymentMethod(userId: Long, name: String) =

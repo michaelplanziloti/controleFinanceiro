@@ -67,6 +67,10 @@ class SettingsViewModel(
 
     fun addPerson(name: String) = run { if (name.isNotBlank()) repo.addPerson(userId, name, state.value.people.size) }
     fun deletePerson(person: PersonEntity) = run { repo.deletePerson(person) }
+    fun renamePerson(person: PersonEntity, name: String) = run { repo.renamePerson(person, name) }
+    fun renameCategory(category: CategoryEntity, name: String) = run { repo.renameCategory(category, name) }
+    fun renamePaymentMethod(method: PaymentMethodEntity, name: String) = run { repo.renamePaymentMethod(method, name) }
+    fun renameCard(card: CardEntity, name: String) = run { repo.renameCard(card, name) }
 
     fun addCategory(name: String) = run { if (name.isNotBlank()) repo.addCategory(userId, name) }
     fun deleteCategory(category: CategoryEntity) = run { repo.deleteCategory(category) }

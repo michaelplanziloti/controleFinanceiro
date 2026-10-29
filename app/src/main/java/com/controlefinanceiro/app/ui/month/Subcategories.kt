@@ -68,6 +68,7 @@ import com.controlefinanceiro.app.data.db.PersonEntity
 import com.controlefinanceiro.app.data.db.SubcategoryEntity
 import com.controlefinanceiro.app.data.db.SubcategoryItemEntity
 import com.controlefinanceiro.app.data.sheets.formatDate
+import com.controlefinanceiro.app.data.sheets.nameKey
 import com.controlefinanceiro.app.data.sheets.parseDate
 import com.controlefinanceiro.app.domain.BudgetCalculator
 import com.controlefinanceiro.app.ui.common.AmountField
@@ -145,6 +146,8 @@ fun SubcategoryEditorSheet(
     onSave: (SubcategoryEntity) -> Unit,
     onDelete: ((SubcategoryEntity) -> Unit)?,
     onDismiss: () -> Unit,
+    /** Names of the other subcategories (as nameKey), which this one cannot repeat. */
+    takenNames: Set<String> = emptySet(),
 ) {
     var name by remember { mutableStateOf(initial.name) }
     var planned by remember { mutableStateOf(Money.toInput(initial.plannedCents)) }
@@ -155,7 +158,8 @@ fun SubcategoryEditorSheet(
     var cardId by remember { mutableStateOf(initial.cardId) }
     var inTracker by remember { mutableStateOf(initial.inTracker) }
     var confirmDelete by remember { mutableStateOf(false) }
-    val valid = name.isNotBlank() && Money.parse(planned) != null
+    val duplicate = name.isNotBlank() && name.nameKey() in takenNames
+    val valid = name.isNotBlank() && !duplicate && Money.parse(planned) != null
 
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         Column(
@@ -167,7 +171,10 @@ fun SubcategoryEditorSheet(
                 "Cada mês ganha uma linha com essa meta no bloco escolhido. Os itens que você adicionar somam nela.",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            OutlinedTextField(name, { name = it }, Modifier.fillMaxWidth(), label = { Text("Nome (ex.: Mercado)") }, singleLine = true)
+            OutlinedTextField(
+                name, { name = it }, Modifier.fillMaxWidth(), label = { Text("Nome (ex.: Mercado)") }, singleLine = true,
+                isError = duplicate, supportingText = if (duplicate) ({ Text("Já existe uma subcategoria com esse nome") }) else null,
+            )
             AmountField("Meta do mês", planned, { planned = it })
             DropdownField(
                 "Onde fica", ExpenseBlock.entries.filter { it != ExpenseBlock.TITHE }, block, { it.title() },

@@ -4,6 +4,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -31,6 +32,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.CreditCard
 import androidx.compose.material.icons.outlined.DeleteOutline
@@ -39,6 +41,7 @@ import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.MoreHoriz
 import androidx.compose.material.icons.outlined.Payments
 import androidx.compose.material.icons.outlined.Person
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.ShoppingCart
 import androidx.compose.material.icons.outlined.Update
 import androidx.compose.material.icons.outlined.Visibility
@@ -77,6 +80,7 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateMapOf
@@ -97,6 +101,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
@@ -111,6 +116,7 @@ import com.controlefinanceiro.app.data.db.IncomeEntity
 import com.controlefinanceiro.app.data.db.PersonEntity
 import com.controlefinanceiro.app.data.db.SubcategoryEntity
 import com.controlefinanceiro.app.data.db.SubcategoryItemEntity
+import com.controlefinanceiro.app.data.sheets.nameKey
 import com.controlefinanceiro.app.domain.BudgetCalculator
 import com.controlefinanceiro.app.domain.BudgetGroup
 import com.controlefinanceiro.app.domain.MonthSummary
@@ -164,7 +170,7 @@ private fun BudgetGroup.color(blocks: BlockColors): Color = when (this) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MonthScreen(viewModel: MonthViewModel, contentPadding: PaddingValues) {
+fun MonthScreen(viewModel: MonthViewModel, contentPadding: PaddingValues, onMenu: () -> Unit) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
@@ -190,6 +196,7 @@ fun MonthScreen(viewModel: MonthViewModel, contentPadding: PaddingValues) {
     var editingSubcategory by remember { mutableStateOf<SubcategoryEntity?>(null) }
     var showNewEntry by remember { mutableStateOf(false) }
     var showTrackerChooser by remember { mutableStateOf(false) }
+    var showSearch by remember { mutableStateOf(false) }
 
     fun newSubcategory() {
         editingSubcategory = SubcategoryEntity(userId = 0, name = "", block = ExpenseBlock.COUPLE, plannedCents = 0, inTracker = true)
@@ -203,6 +210,10 @@ fun MonthScreen(viewModel: MonthViewModel, contentPadding: PaddingValues) {
     var cardOrder by remember(savedOrder) { mutableStateOf(savedOrder) }
     var draggingCard by remember { mutableStateOf<String?>(null) }
     var dragOffset by remember { mutableFloatStateOf(0f) }
+    // Finger position inside the dragged card, to scroll the list when it reaches the top or bottom edge.
+    var dragFingerY by remember { mutableFloatStateOf(0f) }
+    val edgePx = with(LocalDensity.current) { 96.dp.toPx() }
+    val maxScrollPx = with(LocalDensity.current) { 18.dp.toPx() }
     val haptics = LocalHapticFeedback.current
 
     /** Moves the dragged card past a neighbour once its middle crosses into it, keeping it under the finger. */
@@ -215,9 +226,39 @@ fun MonthScreen(viewModel: MonthViewModel, contentPadding: PaddingValues) {
             ?: return
         val from = cardOrder.indexOf(key)
         val to = cardOrder.indexOf(target.key)
+        // The list keeps its position on the first visible card; when that card is part of the swap it
+        // would follow it and push the dragged card off screen, so the scroll position is pinned instead.
+        val firstIndex = listState.firstVisibleItemIndex
+        val firstOffset = listState.firstVisibleItemScrollOffset
         cardOrder = cardOrder.toMutableList().apply { add(to, removeAt(from)) }
+        if (current.index == firstIndex || target.index == firstIndex) {
+            scope.launch { listState.scrollToItem(firstIndex, firstOffset) }
+        }
         dragOffset += if (to > from) -((target.offset + target.size) - (current.offset + current.size)).toFloat()
         else (current.offset - target.offset).toFloat()
+    }
+
+    // While a card is held near the top or bottom of the screen, the list scrolls and the card stays under the finger.
+    LaunchedEffect(draggingCard) {
+        val key = draggingCard ?: return@LaunchedEffect
+        while (draggingCard == key) {
+            val info = listState.layoutInfo
+            val current = info.visibleItemsInfo.firstOrNull { it.key == key }
+            if (current != null) {
+                val fingerY = current.offset + dragOffset + dragFingerY
+                val speed = when {
+                    fingerY < info.viewportStartOffset + edgePx -> -maxScrollPx * (1f - ((fingerY - info.viewportStartOffset) / edgePx).coerceIn(0f, 1f))
+                    fingerY > info.viewportEndOffset - edgePx -> maxScrollPx * (1f - ((info.viewportEndOffset - fingerY) / edgePx).coerceIn(0f, 1f))
+                    else -> 0f
+                }
+                if (speed != 0f) {
+                    val consumed = listState.scrollBy(speed)
+                    dragOffset += consumed
+                    dragCard(key, 0f)
+                }
+            }
+            withFrameNanos { }
+        }
     }
 
     fun endCardDrag() {
@@ -238,13 +279,15 @@ fun MonthScreen(viewModel: MonthViewModel, contentPadding: PaddingValues) {
         }
         .pointerInput(key) {
             detectDragGesturesAfterLongPress(
-                onDragStart = {
+                onDragStart = { start ->
                     haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                     draggingCard = key
                     dragOffset = 0f
+                    dragFingerY = start.y
                 },
                 onDrag = { change, amount ->
                     change.consume()
+                    dragFingerY = change.position.y
                     dragCard(key, amount.y)
                 },
                 onDragEnd = ::endCardDrag,
@@ -331,6 +374,7 @@ fun MonthScreen(viewModel: MonthViewModel, contentPadding: PaddingValues) {
         topBar = {
             TopAppBar(
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background),
+                navigationIcon = { IconButton(onClick = onMenu) { Icon(Icons.Default.Menu, "Menu") } },
                 title = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         IconButton(onClick = { viewModel.step(-1) }) {
@@ -373,6 +417,7 @@ fun MonthScreen(viewModel: MonthViewModel, contentPadding: PaddingValues) {
                     }
                 },
                 actions = {
+                    IconButton(onClick = { showSearch = true }) { Icon(Icons.Outlined.Search, "Buscar") }
                     FilledTonalIconButton(onClick = { showNewMonth = true }, modifier = Modifier.padding(end = 8.dp)) {
                         Icon(Icons.Default.Add, "Novo mês")
                     }
@@ -469,7 +514,7 @@ fun MonthScreen(viewModel: MonthViewModel, contentPadding: PaddingValues) {
                     )
                 }
                 if (!isCollapsed(ANCHOR_INCOME)) {
-                    itemsIndexed(detail.incomes, key = { _, it -> "income-${it.id}" }) { index, income ->
+                    itemsIndexed(detail.incomes.sortedByDescending { it.id }, key = { _, it -> "income-${it.id}" }) { index, income ->
                         IncomeRow(
                             income,
                             state.reference.people.firstOrNull { it.id == income.personId }?.name?.let(::shortName) ?: "Casal",
@@ -480,7 +525,7 @@ fun MonthScreen(viewModel: MonthViewModel, contentPadding: PaddingValues) {
                 }
 
                 Section.entries.forEach { section ->
-                    val list = detail.expenses.filter { it.block in section.blocks }
+                    val list = detail.expenses.filter { it.block in section.blocks }.newestFirst()
                     val color = blockColors.of(section.newBlock)
                     val total = list.sumOf { BudgetCalculator.actual(it) }
                     val planned = if (section == Section.PERSONAL) summary.totalAllowanceCents
@@ -530,6 +575,25 @@ fun MonthScreen(viewModel: MonthViewModel, contentPadding: PaddingValues) {
         }
     }
 
+    if (showSearch) {
+        val query by viewModel.searchQuery.collectAsStateWithLifecycle()
+        val results by viewModel.searchResults.collectAsStateWithLifecycle()
+        SearchScreen(
+            query = query,
+            results = results,
+            onQuery = { viewModel.searchQuery.value = it },
+            onOpen = { hit ->
+                showSearch = false
+                viewModel.selectMonth(hit.month.id)
+                when {
+                    hit.item != null -> editingItem = hit.item to hit.expense.subcategoryId
+                    hit.expense.subcategoryId != null -> openRowId = hit.expense.id
+                    else -> editingExpense = hit.expense
+                }
+            },
+            onDismiss = { showSearch = false },
+        )
+    }
     if (showNewEntry && detail != null) {
         NewEntrySheet(
             onItem = { showNewEntry = false; editingItem = null to null },
@@ -548,7 +612,7 @@ fun MonthScreen(viewModel: MonthViewModel, contentPadding: PaddingValues) {
         } else {
             SubcategoryRowSheet(
                 row = row,
-                items = detail.items.filter { it.expenseId == rowId },
+                items = detail.items.filter { it.expenseId == rowId }.newestFirstItems(),
                 onAddItem = { editingItem = SubcategoryItemEntity(expenseId = rowId, description = "", amountCents = 0).takeIf { row.subcategoryId == null } to row.subcategoryId },
                 onEditItem = { editingItem = it to row.subcategoryId },
                 onDeleteItem = ::deleteItemWithUndo,
@@ -584,6 +648,7 @@ fun MonthScreen(viewModel: MonthViewModel, contentPadding: PaddingValues) {
             onSave = { viewModel.saveSubcategory(it); editingSubcategory = null },
             onDelete = if (sub.id == 0L) null else { s -> viewModel.deleteSubcategory(s); editingSubcategory = null },
             onDismiss = { editingSubcategory = null },
+            takenNames = state.reference.subcategories.filter { it.id != sub.id }.map { it.name.nameKey() }.toSet(),
         )
     }
     if (showTrackerChooser) {
@@ -607,7 +672,7 @@ fun MonthScreen(viewModel: MonthViewModel, contentPadding: PaddingValues) {
     expenseList?.let { filter ->
         ExpenseListSheet(
             filter = filter,
-            expenses = detail?.expenses.orEmpty().filter(filter::matches),
+            expenses = detail?.expenses.orEmpty().filter(filter::matches).newestFirst(),
             reference = state.reference,
             plannedOf = viewModel::resolvedPlanned,
             onToggle = ::togglePaidWithUndo,
@@ -734,8 +799,8 @@ private fun HeroCard(
     val ringColor = when {
         summary.incomeCents <= 0 -> hero.muted
         used > 1f -> Color(0xFFFF8A7E)
-        used >= 0.9f -> Color(0xFFFFC266)
-        else -> Color(0xFF8FF0C8)
+        used >= 0.9f -> Color(0xFFFF9F43)
+        else -> Color(0xFFFFD400)
     }
     Column(
         Modifier
@@ -1363,3 +1428,9 @@ private fun PayAllDialog(title: String, count: Int, totalCents: Long, onConfirm:
     )
 }
 
+/** Lists show the latest additions first (rows from before the time was recorded follow their insertion order). */
+fun List<ExpenseEntity>.newestFirst(): List<ExpenseEntity> =
+    sortedWith(compareByDescending<ExpenseEntity> { it.createdAt }.thenByDescending { it.id })
+
+fun List<SubcategoryItemEntity>.newestFirstItems(): List<SubcategoryItemEntity> =
+    sortedWith(compareByDescending<SubcategoryItemEntity> { it.createdAt }.thenByDescending { it.id })

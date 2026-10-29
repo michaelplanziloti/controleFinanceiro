@@ -38,6 +38,18 @@ interface ReferenceDao {
     @Delete
     suspend fun deletePerson(person: PersonEntity)
 
+    @Update
+    suspend fun updatePerson(person: PersonEntity)
+
+    @Update
+    suspend fun updateCategory(category: CategoryEntity)
+
+    @Update
+    suspend fun updatePaymentMethod(method: PaymentMethodEntity)
+
+    @Update
+    suspend fun updateCard(card: CardEntity)
+
     @Query("SELECT * FROM categories WHERE user_id = :userId ORDER BY name")
     fun observeCategories(userId: Long): Flow<List<CategoryEntity>>
 
@@ -155,6 +167,12 @@ interface MonthDao {
 
     @Query("SELECT e.* FROM expenses e JOIN months m ON m.id = e.month_id WHERE m.user_id = :userId")
     suspend fun allExpenses(userId: Long): List<ExpenseEntity>
+
+    @Query("SELECT e.* FROM expenses e JOIN months m ON m.id = e.month_id WHERE m.user_id = :userId")
+    fun observeAllExpenses(userId: Long): Flow<List<ExpenseEntity>>
+
+    @Query("SELECT i.* FROM subcategory_items i JOIN expenses e ON e.id = i.expense_id JOIN months m ON m.id = e.month_id WHERE m.user_id = :userId")
+    fun observeAllItems(userId: Long): Flow<List<SubcategoryItemEntity>>
 
     // Subcategory items
     @Query("SELECT i.* FROM subcategory_items i JOIN expenses e ON e.id = i.expense_id WHERE e.month_id = :monthId ORDER BY i.date, i.id")

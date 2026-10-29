@@ -103,6 +103,15 @@ class MonthViewModel(
 
     private val months = repo.observeMonths(userId)
 
+    /** Search in every month; results only load while something is typed. */
+    val searchQuery = MutableStateFlow("")
+    val searchResults: StateFlow<List<SearchHit>> = searchQuery.flatMapLatest { query ->
+        if (query.isBlank()) flowOf(emptyList())
+        else combine(months, repo.observeAllExpenses(userId), repo.observeAllItems(userId)) { monthList, expenses, items ->
+            searchMonths(query, monthList, expenses, items)
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
     /** Selected month, or the one left open last time, or the current calendar month, or the most recent one. */
     private val activeMonth = combine(months, selectedMonthId, session.lastMonth(userId)) { list, selected, last ->
         val today = LocalDate.now()

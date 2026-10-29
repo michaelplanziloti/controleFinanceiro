@@ -127,6 +127,7 @@ data class SubcategoryItemEntity(
     @ColumnInfo(name = "amount_cents") val amountCents: Long,
     /** Which payday covered it, like the spreadsheet: true = "Pago dia 15", false = "Pago dia 30". */
     @ColumnInfo(name = "on_day15") val onDay15: Boolean = true,
+    @ColumnInfo(name = "created_at", defaultValue = "0") val createdAt: Long = System.currentTimeMillis(),
 )
 
 /** Budget rule: tithe over gross income, the other three over income after tithe. Values in basis points (10000 = 100%). */
@@ -234,4 +235,6 @@ data class ExpenseEntity(
     @ColumnInfo(name = "paid_day15_cents") val paidDay15Cents: Long = 0,
     @ColumnInfo(name = "is_paid") val isPaid: Boolean = false,
     @ColumnInfo(name = "sort_order") val sortOrder: Int = 0,
+    /** When it was added (epoch ms), so lists can show the newest first; 0 for rows from before this existed. */
+    @ColumnInfo(name = "created_at", defaultValue = "0") val createdAt: Long = System.currentTimeMillis(),
 )
