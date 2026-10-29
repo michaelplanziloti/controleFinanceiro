@@ -5,15 +5,15 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- Bars, partly hidden behind the wallet -->
-    <path android:fillColor="#FF5FD3A8" android:pathData="M41,36H43A3,3 0,0 1,46 39V50H38V39A3,3 0,0 1,41 36Z" />
-    <path android:fillColor="#FF7FE3BB" android:pathData="M53,30H55A3,3 0,0 1,58 33V50H50V33A3,3 0,0 1,53 30Z" />
-    <path android:fillColor="#FFA6F5D3" android:pathData="M65,24H67A3,3 0,0 1,70 27V50H62V27A3,3 0,0 1,65 24Z" />
+    <!-- Bars, partly hidden behind the wallet; the tallest one in the app's yellow -->
+    <path android:fillColor="#FF6B6B6B" android:pathData="M41,36H43A3,3 0,0 1,46 39V50H38V39A3,3 0,0 1,41 36Z" />
+    <path android:fillColor="#FFA3A3A3" android:pathData="M53,30H55A3,3 0,0 1,58 33V50H50V33A3,3 0,0 1,53 30Z" />
+    <path android:fillColor="#FFFFD400" android:pathData="M65,24H67A3,3 0,0 1,70 27V50H62V27A3,3 0,0 1,65 24Z" />
     <!-- Soft shadow under the wallet -->
     <path android:fillColor="#33000000" android:pathData="M38,46H70A8,8 0,0 1,78 54V72A8,8 0,0 1,70 80H38A8,8 0,0 1,30 72V54A8,8 0,0 1,38 46Z" />
     <!-- Wallet body -->
     <path android:fillColor="#FFFFFFFF" android:pathData="M38,44H70A8,8 0,0 1,78 52V70A8,8 0,0 1,70 78H38A8,8 0,0 1,30 70V52A8,8 0,0 1,38 44Z" />
     <!-- Clasp -->
-    <path android:fillColor="#FF0B6E5F" android:pathData="M65,54H75A7,7 0,0 1,82 61A7,7 0,0 1,75 68H65A7,7 0,0 1,58 61A7,7 0,0 1,65 54Z" />
-    <path android:fillColor="#FFA6F5D3" android:pathData="M63,61A3,3 0,1 0,69 61A3,3 0,1 0,63 61Z" />
+    <path android:fillColor="#FF151515" android:pathData="M65,54H75A7,7 0,0 1,82 61A7,7 0,0 1,75 68H65A7,7 0,0 1,58 61A7,7 0,0 1,65 54Z" />
+    <path android:fillColor="#FFFFD400" android:pathData="M63,61A3,3 0,1 0,69 61A3,3 0,1 0,63 61Z" />
 </vector>
