@@ -522,7 +522,7 @@ fun TrackerChooserDialog(subcategories: List<SubcategoryEntity>, onSave: (List<L
     )
 }
 
-/** Opens when a saved item takes budgets of the month past their planned value. */
+/** Opens when a saved item or entry takes the month's planned or spent total past the income. */
 @Composable
 fun BudgetAlertDialog(alert: BudgetAlert, onDismiss: () -> Unit) {
     val negative = LocalMoneyColors.current.negative
@@ -535,23 +535,23 @@ fun BudgetAlertDialog(alert: BudgetAlert, onDismiss: () -> Unit) {
                 Column(
                     Modifier.fillMaxWidth().clip(MaterialTheme.shapes.medium).background(MaterialTheme.colorScheme.surfaceContainerHigh).padding(12.dp),
                 ) {
-                    Text("Item que estourou", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("O que estourou", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            Installments.sheetDescription(alert.item), Modifier.weight(1f),
+                            alert.title, Modifier.weight(1f),
                             style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium, maxLines = 2, overflow = TextOverflow.Ellipsis,
                         )
-                        Text(Money.format(alert.item.amountCents), style = MaterialTheme.typography.titleSmall)
+                        Text(Money.format(alert.amountCents), style = MaterialTheme.typography.titleSmall)
                     }
                 }
                 alert.lines.forEach { line ->
                     Column {
-                        Text(line.name, style = MaterialTheme.typography.titleSmall)
+                        Text("${line.name} vs renda", style = MaterialTheme.typography.titleSmall)
                         Text(
-                            "Previsto ${Money.format(line.plannedCents)} · gasto ${Money.format(line.spentCents)}",
+                            "Renda ${Money.format(alert.incomeCents)} · ${line.name.lowercase()} ${Money.format(line.totalCents)}",
                             style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
-                        Text("Passou ${Money.format(line.spentCents - line.plannedCents)}", style = MaterialTheme.typography.bodyMedium, color = negative)
+                        Text("Passou ${Money.format(line.totalCents - alert.incomeCents)} da renda", style = MaterialTheme.typography.bodyMedium, color = negative)
                     }
                 }
             }

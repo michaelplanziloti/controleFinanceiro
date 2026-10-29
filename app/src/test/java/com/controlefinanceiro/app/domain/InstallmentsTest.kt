@@ -1,5 +1,7 @@
 package com.controlefinanceiro.app.domain
 
+import com.controlefinanceiro.app.data.db.ExpenseBlock
+import com.controlefinanceiro.app.data.db.ExpenseEntity
 import com.controlefinanceiro.app.data.db.SubcategoryItemEntity
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -27,6 +29,23 @@ class InstallmentsTest {
         assertEquals(3, third.installmentNumber)
         assertNull(Installments.next(third, expenseId = 4))
         assertNull(Installments.next(first.copy(installmentCount = 1), expenseId = 2))
+    }
+
+    @Test
+    fun nextEntryInstallment() {
+        val first = ExpenseEntity(
+            id = 5, monthId = 1, block = ExpenseBlock.PERSONAL, description = "Jaqueta (1/3)", plannedCents = 3_334,
+            paidDay15Cents = 3_334, isPaid = true, installmentTotalCents = 10_000,
+        )
+        val second = Installments.next(first, monthId = 2)!!
+        assertEquals("Jaqueta (2/3)", second.description)
+        assertEquals(3_333, second.plannedCents)
+        assertEquals(0L, second.paidDay15Cents)
+        assertEquals(false, second.isPaid)
+        assertEquals(2L, second.monthId)
+        assertNull(Installments.next(second.copy(description = "Jaqueta (3/3)"), monthId = 3))
+        // Typed in the sheet without the whole value: the next one repeats the target.
+        assertEquals(14_000, Installments.next(first.copy(description = "Tênis (1/2)", plannedCents = 14_000, installmentTotalCents = null), 2)!!.plannedCents)
     }
 
     @Test

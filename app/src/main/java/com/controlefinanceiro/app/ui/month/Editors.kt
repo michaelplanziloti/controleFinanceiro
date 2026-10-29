@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -19,6 +20,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -31,11 +35,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.controlefinanceiro.app.data.db.ExpenseBlock
 import com.controlefinanceiro.app.data.db.ExpenseEntity
 import com.controlefinanceiro.app.data.db.IncomeEntity
 import com.controlefinanceiro.app.data.db.PersonEntity
+import com.controlefinanceiro.app.domain.Installments
 import com.controlefinanceiro.app.ui.common.AmountField
 import com.controlefinanceiro.app.ui.common.DropdownField
 import com.controlefinanceiro.app.ui.common.MONTH_NAMES
@@ -74,9 +80,18 @@ fun ExpenseEditorSheet(
     var paid30 by remember { mutableStateOf(Money.toInput(initial.paidDay30Cents)) }
     var paid15 by remember { mutableStateOf(Money.toInput(initial.paidDay15Cents)) }
     var isPaid by remember { mutableStateOf(initial.isPaid) }
+    // Installments are chosen when the entry is added; later ones come in the next months.
+    var split by remember { mutableStateOf(false) }
+    var count by remember { mutableStateOf("2") }
+    var typedIsTotal by remember { mutableStateOf(false) }
+    val canSplit = initial.id == 0L && block != ExpenseBlock.TITHE
+    val splitting = split && canSplit
+    val installments = count.toIntOrNull()?.takeIf { it in 2..999 }
+    val typed = Money.parse(planned)
+    val existing = Installments.parse(initial.description).takeIf { initial.id != 0L && it.third > 1 }
 
-    val valid = description.isNotBlank() && Money.parse(planned) != null && Money.parse(paid30) != null &&
-        Money.parse(paid15) != null && (block != ExpenseBlock.PERSONAL || personId != null)
+    val valid = description.isNotBlank() && typed != null && Money.parse(paid30) != null &&
+        Money.parse(paid15) != null && (block != ExpenseBlock.PERSONAL || personId != null) && (!splitting || installments != null)
 
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         Column(
@@ -122,7 +137,50 @@ fun ExpenseEditorSheet(
                     Switch(checked = auto, onCheckedChange = { auto = it })
                 }
             }
-            if (!(block == ExpenseBlock.TITHE && auto)) AmountField("Meta", planned, { planned = it })
+            if (existing != null) {
+                Text(
+                    "Parcela ${existing.second} de ${existing.third}" +
+                        (initial.installmentTotalCents?.let { " · total ${Money.format(it)}" } ?: "") +
+                        ". A alteração vale só para este mês.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            if (canSplit) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Parcelado")
+                        Text("Cada mês novo recebe a próxima parcela", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Switch(checked = split, onCheckedChange = { split = it })
+                }
+            }
+            if (splitting) {
+                OutlinedTextField(
+                    count, { count = it.filter(Char::isDigit).take(3) }, Modifier.fillMaxWidth(),
+                    label = { Text("Número de parcelas") }, singleLine = true, isError = installments == null,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                )
+                SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                    listOf(false to "Valor da parcela", true to "Valor total").forEachIndexed { index, (total, label) ->
+                        SegmentedButton(selected = typedIsTotal == total, onClick = { typedIsTotal = total }, shape = SegmentedButtonDefaults.itemShape(index, 2)) {
+                            Text(label)
+                        }
+                    }
+                }
+            }
+            if (!(block == ExpenseBlock.TITHE && auto)) {
+                AmountField(if (!splitting) "Meta" else if (typedIsTotal) "Valor total" else "Valor da parcela", planned, { planned = it })
+            }
+            if (splitting && installments != null && typed != null && typed != 0L) {
+                val total = Installments.total(typed, installments, typedIsTotal)
+                val first = Installments.share(total, installments, 1)
+                val other = Installments.share(total, installments, 2)
+                Text(
+                    (if (first == other) "${installments}x de ${Money.format(first)}" else "1ª de ${Money.format(first)} e ${installments - 1}x de ${Money.format(other)}") +
+                        " = ${Money.format(total)}. A meta deste mês é a 1ª parcela.",
+                    style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary,
+                )
+            }
             if (paidFromItems) {
                 Text(
                     "Pago dia 30: ${Money.format(initial.paidDay30Cents)} · Pago dia 15: ${Money.format(initial.paidDay15Cents)} " +
@@ -147,16 +205,19 @@ fun ExpenseEditorSheet(
                     enabled = valid,
                     modifier = Modifier.weight(1f),
                     onClick = {
+                        val n = installments
+                        val total = if (splitting && n != null) Installments.total(typed ?: 0, n, typedIsTotal) else null
                         onSave(
                             initial.copy(
-                                description = description.trim(),
+                                description = if (total != null && n != null) Installments.describe(description, 1, n) else description.trim(),
                                 block = block,
                                 personId = if (block == ExpenseBlock.PERSONAL) personId else null,
                                 categoryId = categoryId,
                                 paymentMethodId = methodId,
                                 cardId = cardId,
                                 dueDay = dueDay.trim().ifEmpty { null },
-                                plannedCents = Money.parse(planned) ?: 0,
+                                plannedCents = if (total != null && n != null) Installments.share(total, n, 1) else typed ?: 0,
+                                installmentTotalCents = total ?: initial.installmentTotalCents,
                                 autoPlanned = block == ExpenseBlock.TITHE && auto,
                                 paidDay30Cents = Money.parse(paid30) ?: 0,
                                 paidDay15Cents = Money.parse(paid15) ?: 0,

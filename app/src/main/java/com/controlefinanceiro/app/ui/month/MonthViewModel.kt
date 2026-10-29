@@ -17,6 +17,7 @@ import com.controlefinanceiro.app.data.db.PersonEntity
 import com.controlefinanceiro.app.data.db.SubcategoryEntity
 import com.controlefinanceiro.app.data.db.SubcategoryItemEntity
 import com.controlefinanceiro.app.domain.BudgetCalculator
+import com.controlefinanceiro.app.domain.Installments
 import com.controlefinanceiro.app.domain.MonthSummary
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -47,9 +48,10 @@ data class MonthDetail(
     val items: List<SubcategoryItemEntity> = emptyList(),
 )
 
-/** An item that took one or more budgets of the month past their planned value. */
-data class BudgetAlert(val item: SubcategoryItemEntity, val lines: List<Line>) {
-    data class Line(val name: String, val plannedCents: Long, val spentCents: Long)
+/** An item or entry ([title], [amountCents]) that took the month's planned or spent total past the income. */
+data class BudgetAlert(val title: String, val amountCents: Long, val incomeCents: Long, val lines: List<Line>) {
+    /** [name] is "Previsto" or "Realizado", as in the "Renda do mês" card. */
+    data class Line(val name: String, val totalCents: Long)
 }
 
 data class MonthUiState(
@@ -170,7 +172,18 @@ class MonthViewModel(
         repo.deleteMonth(month)
     }
 
-    fun saveExpense(expense: ExpenseEntity) = viewModelScope.launch { repo.saveExpense(expense) }
+    /** Saves an entry; a new one in installments also goes to the later months that exist. */
+    fun saveExpense(expense: ExpenseEntity) = viewModelScope.launch {
+        val state = state.value
+        val alert = state.detail?.let { detail ->
+            // A new entry gets a placeholder id so it can be told apart from the others.
+            val saved = if (expense.id == 0L) expense.copy(id = -1) else expense
+            val after = detail.expenses.filter { it.id != saved.id } + saved
+            overBudget(state, detail.expenses, after, saved.description, BudgetCalculator.actual(saved).takeIf { it > 0 } ?: saved.plannedCents)
+        }
+        repo.saveExpense(expense, newPurchase = expense.id == 0L)
+        if (alert != null) budgetAlert.value = alert
+    }
     fun deleteExpense(expense: ExpenseEntity) = viewModelScope.launch { repo.deleteExpense(expense) }
     fun restoreExpense(expense: ExpenseEntity) = viewModelScope.launch { repo.restoreExpense(expense) }
     fun togglePaid(expense: ExpenseEntity) = viewModelScope.launch { repo.togglePaid(expense) }
@@ -221,15 +234,11 @@ class MonthViewModel(
         if (alert != null) budgetAlert.value = alert
     }
 
-    /**
-     * The budgets that were within their planned value before [item] and are past it after: the
-     * item's row, the group of its block (e.g. Variável) and, in Mesadas, the person's allowance.
-     */
+    /** [overBudget] for an item: its row gains the item's value (and loses the previous one when edited). */
     private fun overBudget(
         state: MonthUiState, rowId: Long, subcategoryId: Long?, item: SubcategoryItemEntity, previous: SubcategoryItemEntity?,
     ): BudgetAlert? {
         val detail = state.detail ?: return null
-        val settings = state.reference.settings ?: BudgetSettingsEntity(userId = userId)
         // A row created just now for the subcategory is not in the state yet.
         val row = detail.expenses.firstOrNull { it.id == rowId }
             ?: state.reference.subcategories.firstOrNull { it.id == subcategoryId }?.let { sub ->
@@ -247,17 +256,28 @@ class MonthViewModel(
             if (e.id == rowId) e = e.plus(item.amountCents)
             e
         }
-        val lines = mutableListOf<BudgetAlert.Line>()
-        fun check(name: String, planned: Long, spentBefore: Long, spentAfter: Long) {
-            if (planned > 0 && spentBefore <= planned && spentAfter > planned) lines += BudgetAlert.Line(name, planned, spentAfter)
-        }
-        val rowAfter = afterRows.first { it.id == rowId }
-        check(row.description, BudgetCalculator.resolvedPlanned(row, state.summary?.incomeCents ?: 0, settings), BudgetCalculator.actual(row), BudgetCalculator.actual(rowAfter))
-        val sumBefore = BudgetCalculator.summarize(detail.incomes, detail.allowances, beforeRows, state.reference.people, settings)
-        val sumAfter = BudgetCalculator.summarize(detail.incomes, detail.allowances, afterRows, state.reference.people, settings)
-        sumBefore.groups.zip(sumAfter.groups).forEach { (b, a) -> check("Total ${a.group.label}", a.plannedCents, b.actualCents, a.actualCents) }
-        sumBefore.people.zip(sumAfter.people).forEach { (b, a) -> check("Mesada de ${a.person.name}", a.allowanceCents, b.spentCents, a.spentCents) }
-        return lines.takeIf { it.isNotEmpty() }?.let { BudgetAlert(item, it) }
+        return overBudget(state, beforeRows, afterRows, Installments.sheetDescription(item), item.amountCents)
+    }
+
+    /**
+     * Like the "Renda do mês" card: the month's planned total (Previsto) or spent total (Realizado)
+     * that was within the income with [beforeRows] and passes it with [afterRows]. [title] and
+     * [amountCents] describe what caused it.
+     */
+    private fun overBudget(
+        state: MonthUiState, beforeRows: List<ExpenseEntity>, afterRows: List<ExpenseEntity>, title: String, amountCents: Long,
+    ): BudgetAlert? {
+        val detail = state.detail ?: return null
+        val settings = state.reference.settings ?: BudgetSettingsEntity(userId = userId)
+        val before = BudgetCalculator.summarize(detail.incomes, detail.allowances, beforeRows, state.reference.people, settings)
+        val after = BudgetCalculator.summarize(detail.incomes, detail.allowances, afterRows, state.reference.people, settings)
+        val income = after.incomeCents
+        if (income <= 0) return null
+        val lines = listOfNotNull(
+            BudgetAlert.Line("Previsto", after.plannedCents).takeIf { before.plannedCents <= income && after.plannedCents > income },
+            BudgetAlert.Line("Realizado", after.actualCents).takeIf { before.actualCents <= income && after.actualCents > income },
+        )
+        return lines.takeIf { it.isNotEmpty() }?.let { BudgetAlert(title, amountCents, income, it) }
     }
 
     fun deleteItem(item: SubcategoryItemEntity) = viewModelScope.launch { repo.deleteItem(item) }

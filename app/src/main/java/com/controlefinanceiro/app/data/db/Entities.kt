@@ -242,4 +242,9 @@ data class ExpenseEntity(
     @ColumnInfo(name = "sort_order") val sortOrder: Int = 0,
     /** When it was added (epoch ms), so lists can show the newest first; 0 for rows from before this existed. */
     @ColumnInfo(name = "created_at", defaultValue = "0") val createdAt: Long = System.currentTimeMillis(),
+    /**
+     * Whole value of a purchase in installments. Which installment it is lives in the description,
+     * like the spreadsheet: "Jaqueta (1/3)". Null when unknown (typed in the sheet).
+     */
+    @ColumnInfo(name = "installment_total_cents") val installmentTotalCents: Long? = null,
 )

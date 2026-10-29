@@ -1,5 +1,6 @@
 package com.controlefinanceiro.app.domain
 
+import com.controlefinanceiro.app.data.db.ExpenseEntity
 import com.controlefinanceiro.app.data.db.SubcategoryItemEntity
 
 /** A purchase split in monthly installments, like "Tênis" in 2x: one item per month, 1/2 then 2/2. */
@@ -29,6 +30,33 @@ object Installments {
             amountCents = share(total, item.installmentCount, number),
             installmentNumber = number,
             installmentTotalCents = total,
+            createdAt = now,
+        )
+    }
+
+    /** An entry's description with its installment, like the spreadsheet writes it: "Jaqueta (1/3)". */
+    fun describe(text: String, number: Int, count: Int): String = "${text.trim()} ($number/$count)"
+
+    /** True for an entry whose description says it is one installment of several. */
+    fun isInstallment(expense: ExpenseEntity): Boolean = parse(expense.description).third > 1
+
+    /**
+     * The entry of the next installment in [monthId], unpaid, or null after the last one. Its target
+     * comes from the whole value when known, otherwise it repeats this installment's.
+     */
+    fun next(expense: ExpenseEntity, monthId: Long, now: Long = System.currentTimeMillis()): ExpenseEntity? {
+        val (text, number, count) = parse(expense.description)
+        if (count < 2 || number >= count) return null
+        val total = expense.installmentTotalCents
+        return expense.copy(
+            id = 0,
+            monthId = monthId,
+            description = describe(text, number + 1, count),
+            plannedCents = total?.let { share(it, count, number + 1) } ?: expense.plannedCents,
+            autoPlanned = false,
+            paidDay30Cents = 0,
+            paidDay15Cents = 0,
+            isPaid = false,
             createdAt = now,
         )
     }

@@ -137,8 +137,9 @@ class FinanceRepository(private val db: AppDatabase, private val onMonthChanged:
             months.incomes(previous.id).forEach { months.upsertIncome(it.copy(id = 0, monthId = monthId)) }
             months.allowances(previous.id).forEach { months.putAllowance(it.copy(id = 0, monthId = monthId)) }
             val recurring = setOf(ExpenseBlock.TITHE, ExpenseBlock.FIXED, ExpenseBlock.COUPLE, ExpenseBlock.INVESTMENT)
+            // Entries in installments are not copied: the next installment comes below instead.
             months.insertExpenses(
-                months.expenses(previous.id).filter { it.block in recurring }.map {
+                months.expenses(previous.id).filter { it.block in recurring && !Installments.isInstallment(it) }.map {
                     it.copy(id = 0, monthId = monthId, paidDay30Cents = 0, paidDay15Cents = 0, isPaid = false)
                 }
             )
@@ -154,6 +155,7 @@ class FinanceRepository(private val db: AppDatabase, private val onMonthChanged:
         // Purchases in installments bring their next installment from the month just before, copied or not.
         val (py, pm) = if (month == 1) year - 1 to 12 else year to month - 1
         months.find(userId, py, pm)?.let { before ->
+            months.expenses(before.id).forEach { addNextInstallment(it, monthId) }
             val rows = months.items(before.id).mapNotNull { item ->
                 val row = months.expense(item.expenseId) ?: return@mapNotNull null
                 val target = matchingRow(row, monthId)
@@ -162,6 +164,30 @@ class FinanceRepository(private val db: AppDatabase, private val onMonthChanged:
             rows.distinct().forEach { sumItems(it) }
         }
         return monthId
+    }
+
+    /** Puts the installment after [expense] in [monthId], unless the month already has it. Returns whether it was added. */
+    private suspend fun addNextInstallment(expense: ExpenseEntity, monthId: Long): Boolean {
+        val next = Installments.next(expense, monthId) ?: return false
+        val key = next.description.nameKey()
+        if (months.expenses(monthId).any { it.block == next.block && it.description.nameKey() == key }) return false
+        months.insertExpense(next)
+        return true
+    }
+
+    /** A new entry in installments also goes to the months after it that already exist, until one is missing. */
+    private suspend fun placeLaterInstallments(expense: ExpenseEntity): Set<Long> {
+        val touched = mutableSetOf<Long>()
+        var month = months.byId(expense.monthId) ?: return touched
+        var current = expense
+        while (true) {
+            val (y, m) = if (month.month == 12) month.year + 1 to 1 else month.year to month.month + 1
+            month = months.find(month.userId, y, m) ?: break
+            val next = Installments.next(current, month.id) ?: break
+            if (addNextInstallment(current, month.id)) touched += month.id
+            current = next
+        }
+        return touched
     }
 
     /** The row in [monthId] that continues [row]: same subcategory, or same block and description; created if missing. */
@@ -344,9 +370,14 @@ class FinanceRepository(private val db: AppDatabase, private val onMonthChanged:
         changed(monthId)
     }
 
-    suspend fun saveExpense(expense: ExpenseEntity) {
-        if (expense.id == 0L) months.insertExpense(expense) else months.updateExpense(expense)
+    /** Saves an entry; a new one in installments ([newPurchase]) also fills the later months that exist. */
+    suspend fun saveExpense(expense: ExpenseEntity, newPurchase: Boolean = false) {
+        val later = db.withTransaction {
+            if (expense.id == 0L) months.insertExpense(expense) else months.updateExpense(expense)
+            if (newPurchase && expense.id == 0L) placeLaterInstallments(expense) else emptySet()
+        }
         changed(expense.monthId)
+        later.forEach { changed(it) }
     }
 
     suspend fun restoreExpense(expense: ExpenseEntity) {
@@ -392,7 +423,7 @@ class FinanceRepository(private val db: AppDatabase, private val onMonthChanged:
             ?: months.insert(MonthEntity(userId = userId, year = sheet.year, month = sheet.month))
         // Rows and items that come back from the sheet keep the time they were first added.
         val oldRows = months.expenses(monthId)
-        val rowTimes = oldRows.groupBy { it.block.name + "|" + it.description.nameKey() }.mapValues { (_, l) -> l.map { it.createdAt }.toMutableList() }
+        val rowsBefore = oldRows.groupBy { it.block.name + "|" + it.description.nameKey() }.mapValues { (_, l) -> l.toMutableList() }
         val rowNames = oldRows.associate { it.id to it.description.nameKey() }
         val oldItems = months.items(monthId).groupBy { "${rowNames[it.expenseId]}|${it.description.nameKey()}|${it.amountCents}|${it.date}" }
             .mapValues { (_, l) -> l.toMutableList() }
@@ -411,6 +442,7 @@ class FinanceRepository(private val db: AppDatabase, private val onMonthChanged:
         val subcategories = ref.subcategories(userId).associateBy { it.name.nameKey() }
         val expenses = sheet.expenses.mapIndexed { index, e ->
             val (methodId, cardId) = names.payment(e.payment)
+            val before = rowsBefore[e.block.name + "|" + e.description.nameKey()]?.removeFirstOrNull()
             ExpenseEntity(
                 monthId = monthId,
                 block = e.block,
@@ -428,7 +460,8 @@ class FinanceRepository(private val db: AppDatabase, private val onMonthChanged:
                 isPaid = e.paid,
                 sortOrder = index,
                 subcategoryId = subcategories[e.description.nameKey()]?.id,
-                createdAt = rowTimes[e.block.name + "|" + e.description.nameKey()]?.removeFirstOrNull() ?: now,
+                createdAt = before?.createdAt ?: now,
+                installmentTotalCents = before?.installmentTotalCents,
             )
         }
         val ids = months.insertExpenses(expenses)
