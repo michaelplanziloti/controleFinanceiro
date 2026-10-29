@@ -29,6 +29,7 @@ import com.controlefinanceiro.app.domain.PasswordHasher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.time.LocalDate
+import java.time.YearMonth
 
 sealed interface AuthResult {
     data class Success(val userId: Long) : AuthResult
@@ -172,20 +173,22 @@ class FinanceRepository(private val db: AppDatabase, private val onMonthChanged:
     }
 
     /**
-     * Puts the vacation's net pay (and the 13th advance, when chosen) as income in the month it is
-     * paid, and remembers that month so it is not posted twice. Returns false when that month does
-     * not exist yet.
+     * Puts each part of a vacation's pay as income in its month (e.g. the money kept for November in
+     * November), and remembers the first of those months so it is not posted twice. When any of the
+     * months does not exist yet nothing is posted, and those months are returned.
      */
-    suspend fun postVacation(vacation: VacationEntity, userId: Long, year: Int, month: Int, lines: List<Pair<String, Long>>): Boolean {
-        val target = months.find(userId, year, month) ?: return false
+    suspend fun postVacation(vacation: VacationEntity, userId: Long, lines: List<Triple<YearMonth, String, Long>>): List<YearMonth> {
+        val parts = lines.filter { it.third != 0L }
+        val targets = parts.map { it.first }.distinct().associateWith { months.find(userId, it.year, it.monthValue) }
+        targets.filterValues { it == null }.keys.toList().takeIf { it.isNotEmpty() }?.let { return it }
         db.withTransaction {
-            lines.filter { it.second != 0L }.forEach { (source, cents) ->
-                months.upsertIncome(IncomeEntity(monthId = target.id, personId = vacation.personId, source = source, amountCents = cents))
+            parts.forEach { (month, source, cents) ->
+                months.upsertIncome(IncomeEntity(monthId = targets.getValue(month)!!.id, personId = vacation.personId, source = source, amountCents = cents))
             }
-            db.vacationDao().upsert(vacation.copy(postedMonthId = target.id))
+            db.vacationDao().upsert(vacation.copy(postedMonthId = targets.values.firstOrNull()?.id))
         }
-        changed(target.id)
-        return true
+        targets.values.forEach { changed(it!!.id) }
+        return emptyList()
     }
     fun observeAllAllowances(userId: Long) = months.observeAllAllowances(userId)
 

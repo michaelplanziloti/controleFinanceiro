@@ -162,12 +162,9 @@ internal fun VacationEditorSheet(
             if (vacation.grossCents > 0) Breakdown(vacation, r)
 
             OutlinedTextField(note, { note = it }, Modifier.fillMaxWidth(), label = { Text("Observação (opcional)") })
-            if (r.payBy != null && vacation.grossCents > 0) {
+            if (r.reserves.isNotEmpty() && vacation.grossCents > 0) {
                 FilledTonalButton(onClick = { confirmPost = true }, enabled = valid, modifier = Modifier.fillMaxWidth()) {
-                    Text(
-                        if (postedIn != null) "Já lançado em $postedIn"
-                        else "Lançar como renda em ${MONTH_NAMES[r.payBy.monthValue - 1]}",
-                    )
+                    Text(if (postedIn != null) "Já lançado nos meses" else "Lançar o que guardar em ${r.reserveMonths()}")
                 }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -177,16 +174,15 @@ internal fun VacationEditorSheet(
             Spacer(Modifier.height(16.dp))
         }
     }
-    if (confirmPost && r.payBy != null) {
-        val month = MONTH_NAMES[r.payBy.monthValue - 1]
+    if (confirmPost && r.reserves.isNotEmpty()) {
         AlertDialog(
             onDismissRequest = { confirmPost = false },
-            title = { Text("Lançar em $month?") },
+            title = { Text("Lançar nos meses?") },
             text = {
                 Text(
-                    "Entra como renda em $month ${r.payBy.year}: férias ${Money.format(r.netCents - r.advance13thCents)}" +
-                        (if (r.advance13thCents > 0) " e 13º ${Money.format(r.advance13thCents)}" else "") + "." +
-                        if (postedIn != null) " Já foi lançado em $postedIn uma vez; vai entrar de novo." else "",
+                    "Entra como renda " + r.reserves.joinToString("; ") { "em ${MONTH_NAMES[it.month.monthValue - 1]}: ${Money.format(it.cents)} (${it.days} dias)" } +
+                        ". O resto (${Money.format(r.freeCents)}) fica livre na aba Férias." +
+                        if (postedIn != null) " Já foi lançado uma vez; vai entrar de novo." else "",
                 )
             },
             confirmButton = { TextButton(onClick = { confirmPost = false; onPost(vacation) }) { Text("Lançar") } },
@@ -241,6 +237,17 @@ private fun Breakdown(vacation: VacationEntity, r: Vacation.Result) {
             r.salaries.forEach { s ->
                 Line("${MONTH_NAMES[s.month.monthValue - 1]}: ${s.workedDays} dias trabalhados", s.grossCents, "bruto, ${s.vacationDays} dias de férias")
             }
+        }
+        if (r.reserveCents > 0) {
+            HorizontalDivider(Modifier.padding(vertical = 8.dp))
+            Text("Guardar para não faltar nos meses", style = MaterialTheme.typography.labelLarge)
+            Text(
+                "O pagamento dos dias de férias substitui o salário desses dias. Guarde para cada mês o que ele vai receber a menos.",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            if (r.reserves.isEmpty()) Line("Para os meses das férias", r.reserveCents, "defina a data para separar por mês")
+            r.reserves.forEach { Line("Para ${MONTH_NAMES[it.month.monthValue - 1]}", it.cents, "${it.days} dias de férias") }
+            Line("Livre para gastar", r.freeCents, "1/3, abono e 13º", bold = true)
         }
         if (r.warnings.isNotEmpty()) {
             Spacer(Modifier.height(10.dp))

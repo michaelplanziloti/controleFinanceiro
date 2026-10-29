@@ -11,7 +11,9 @@ import java.time.YearMonth
  * - INSS and IRRF are charged on the days taken plus their third, apart from the month's salary.
  * - The first half of the 13th salary can be paid with the vacation, with no discounts now.
  * - It is paid up to 2 days before the start, so the salary of the months of the vacation only
- *   pays the days worked.
+ *   pays the days worked. The pay of the days taken (net, without the third) replaces that salary,
+ *   so it is kept for those months, split by the vacation days in each one; the rest (the third,
+ *   the sold days and the 13th advance) is free to spend.
  */
 object Vacation {
     const val MAX_SOLD = 10
@@ -27,6 +29,9 @@ object Vacation {
 
     /** The salary of a month the vacation goes through: only the days worked in it. */
     data class MonthSalary(val month: YearMonth, val vacationDays: Int, val workedDays: Int, val grossCents: Long)
+
+    /** Money to keep for a month: what its smaller salary will be missing. */
+    data class Reserve(val month: YearMonth, val days: Int, val cents: Long)
 
     data class Result(
         val vacationCents: Long,
@@ -44,12 +49,19 @@ object Vacation {
         /** Latest day the company must pay. */
         val payBy: LocalDate?,
         val salaries: List<MonthSalary>,
+        /** Net pay of the days taken (without the third), to keep for the months of the vacation. */
+        val reserveCents: Long,
+        /** [reserveCents] split by the vacation days of each month; empty while there is no start date. */
+        val reserves: List<Reserve>,
         /** Rules the input breaks, to show next to the result. */
         val warnings: List<String>,
     ) {
         val grossTotalCents get() = vacationCents + vacationThirdCents + soldCents + soldThirdCents + advance13thCents
         val discountsCents get() = inssCents + irrfCents
         val netCents get() = grossTotalCents - discountsCents
+
+        /** What can be spent without leaving the months short. */
+        val freeCents get() = netCents - reserveCents
     }
 
     fun calculate(input: Input): Result {
@@ -81,6 +93,16 @@ object Vacation {
                 MonthSalary(ym, off, worked, Math.round(day * worked))
             }.toList()
         }
+        // The discounts fall on the days taken and their third; the days' share of them comes off the reserve.
+        val taxed = vacation + vacationThird
+        val reserve = if (taxed > 0) vacation - Math.round((inss + irrf) * vacation.toDouble() / taxed) else 0L
+        val reserves = mutableListOf<Reserve>()
+        var left = reserve
+        salaries.forEachIndexed { i, s ->
+            val cents = if (i == salaries.lastIndex) left else Math.round(reserve * s.vacationDays.toDouble() / input.daysTaken)
+            left -= cents
+            reserves += Reserve(s.month, s.vacationDays, cents)
+        }
         return Result(
             vacationCents = vacation,
             vacationThirdCents = vacationThird,
@@ -94,6 +116,8 @@ object Vacation {
             back = end?.plusDays(1),
             payBy = start?.minusDays(2),
             salaries = salaries,
+            reserveCents = reserve,
+            reserves = reserves,
             warnings = warnings,
         )
     }

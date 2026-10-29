@@ -39,13 +39,18 @@ fun VacationEntity.result(): Vacation.Result = Vacation.calculate(
     Vacation.Input(grossCents, daysTaken, daysSold, dependents, advance13th, startDate?.let(LocalDate::ofEpochDay)),
 )
 
-/** The pay of a vacation as lines of the money card. */
+/** Short name of the months that get money kept: "nov e dez". */
+fun Vacation.Result.reserveMonths(): String =
+    reserves.map { MONTH_NAMES[it.month.monthValue - 1].take(3).lowercase() }.distinct().joinToString(" e ").ifEmpty { "os meses das férias" }
+
+/** The pay of a vacation as lines of the money card; what is kept for the months comes off, leaving what is free. */
 fun VacationEntity.payLines(): List<PayLine> {
     val r = result()
     val days = "$daysTaken dias" + if (daysSold > 0) " + $daysSold vendidos" else ""
     return listOfNotNull(
         PayLine("Férias líquidas", "$days · toque para ver o cálculo", r.netCents - r.advance13thCents),
         PayLine("13º, 1ª parcela", "Adiantado com as férias", r.advance13thCents).takeIf { r.advance13thCents > 0 },
+        PayLine("Guardar para os meses", "Vai para ${r.reserveMonths()}, no lugar do salário dos dias de férias", -r.reserveCents).takeIf { r.reserveCents > 0 },
     )
 }
 
@@ -89,15 +94,19 @@ class VacationViewModel(userId: Long, repo: FinanceRepository) : FundViewModel(u
         repo.deleteVacation(vacation)
     }
 
-    /** Saves and posts the net pay as income in the month it is paid (and the 13th advance apart). */
+    /**
+     * Saves and puts the money kept for each month as income in that month, so its smaller salary
+     * does not leave it short. The free part stays in the Férias tab.
+     */
     fun post(vacation: VacationEntity) = viewModelScope.launch {
         val r = vacation.result()
-        val payDay = r.payBy ?: return@launch
+        if (r.reserves.isEmpty()) return@launch
         val id = repo.saveVacation(vacation.copy(userId = userId))
         val who = state.value.people.firstOrNull { it.id == vacation.personId }?.let { " ${shortName(it.name)}" }.orEmpty()
-        val lines = listOf("Férias$who" to r.netCents - r.advance13thCents, "13º 1ª parcela$who" to r.advance13thCents)
-        val ok = repo.postVacation(vacation.copy(id = id, userId = userId), userId, payDay.year, payDay.monthValue, lines)
-        val month = "${MONTH_NAMES[payDay.monthValue - 1]} ${payDay.year}"
-        message.value = if (ok) "Lançado como renda em $month" else "Crie o mês de $month primeiro"
+        val lines = r.reserves.map { Triple(it.month, "Férias$who (${it.days} dias)", it.cents) }
+        val missing = repo.postVacation(vacation.copy(id = id, userId = userId), userId, lines)
+        fun name(m: java.time.YearMonth) = "${MONTH_NAMES[m.monthValue - 1]} ${m.year}"
+        message.value = if (missing.isEmpty()) "Lançado em ${r.reserves.joinToString(" e ") { name(it.month) }}"
+        else "Crie ${missing.joinToString(" e ") { name(it) }} primeiro"
     }
 }

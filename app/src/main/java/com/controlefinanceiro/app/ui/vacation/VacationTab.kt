@@ -1,27 +1,38 @@
 package com.controlefinanceiro.app.ui.vacation
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.controlefinanceiro.app.data.db.FundExpenseEntity
@@ -29,7 +40,11 @@ import com.controlefinanceiro.app.data.db.FundIncomeEntity
 import com.controlefinanceiro.app.data.db.FundKind
 import com.controlefinanceiro.app.data.db.VacationEntity
 import com.controlefinanceiro.app.data.sheets.formatDate
+import com.controlefinanceiro.app.domain.Vacation
 import com.controlefinanceiro.app.ui.common.MONTH_NAMES
+import com.controlefinanceiro.app.ui.common.Money
+import com.controlefinanceiro.app.ui.common.MoneyText
+import com.controlefinanceiro.app.ui.common.SectionCard
 import com.controlefinanceiro.app.ui.common.shortName
 import com.controlefinanceiro.app.ui.fund.FundCategoryCard
 import com.controlefinanceiro.app.ui.fund.FundEmpty
@@ -39,6 +54,7 @@ import com.controlefinanceiro.app.ui.fund.FundMoneyCard
 import com.controlefinanceiro.app.ui.fund.FundSheets
 import com.controlefinanceiro.app.ui.fund.FundTopBar
 import com.controlefinanceiro.app.ui.fund.countdown
+import com.controlefinanceiro.app.ui.theme.LocalMoneyColors
 
 /**
  * The "Férias" tab: like a month, but only for the vacation money. Its pay (calculated from the
@@ -118,6 +134,14 @@ fun VacationTab(viewModel: VacationViewModel, contentPadding: PaddingValues, onM
                     } else "Sem data definida",
                 )
             }
+            if (r.reserveCents > 0) {
+                item("reserve") {
+                    ReserveCard(
+                        r, posted = state.months.any { it.id == vacation.postedMonthId },
+                        onPost = { viewModel.post(vacation) }, onSetDate = { editing = vacation },
+                    )
+                }
+            }
             item("money") {
                 FundMoneyCard(
                     "Dinheiro das férias", state.totals, onPay = { editing = vacation },
@@ -154,4 +178,66 @@ fun VacationTab(viewModel: VacationViewModel, contentPadding: PaddingValues, onM
         onSaveExpense = viewModel::saveExpense, onDeleteExpense = viewModel::deleteExpense,
         onDismiss = { editingIncome = null; editingExpense = null },
     )
+}
+
+/**
+ * What to keep for each month of the vacation so its smaller salary does not leave it short, and
+ * the button that puts each part as income in its month.
+ */
+@Composable
+private fun ReserveCard(r: Vacation.Result, posted: Boolean, onPost: () -> Unit, onSetDate: () -> Unit) {
+    var confirm by remember { mutableStateOf(false) }
+    val money = LocalMoneyColors.current
+    SectionCard(
+        title = "Guardar para os meses",
+        subtitle = "O salário dos meses das férias vem só com os dias trabalhados. Guarde isto para cada um.",
+    ) {
+        if (r.reserves.isEmpty()) {
+            ReserveRow("Para os meses das férias", "Defina a data para separar por mês", r.reserveCents)
+            TextButton(onClick = onSetDate) { Text("Definir a data") }
+            return@SectionCard
+        }
+        r.reserves.forEach { ReserveRow(MONTH_NAMES[it.month.monthValue - 1] + " ${it.month.year}", "${it.days} dias de férias", it.cents) }
+        HorizontalDivider(Modifier.padding(vertical = 8.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Total a guardar", Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
+            MoneyText(r.reserveCents, style = MaterialTheme.typography.titleMedium)
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Livre para as férias", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            MoneyText(r.freeCents, style = MaterialTheme.typography.titleSmall, color = money.positive)
+        }
+        Spacer(Modifier.height(12.dp))
+        if (posted) {
+            Text("Já lançado como renda nos meses.", style = MaterialTheme.typography.bodySmall, color = money.positive)
+        } else {
+            FilledTonalButton(onClick = { confirm = true }, modifier = Modifier.fillMaxWidth()) { Text("Lançar como renda em ${r.reserveMonths()}") }
+        }
+    }
+    if (confirm) {
+        AlertDialog(
+            onDismissRequest = { confirm = false },
+            title = { Text("Lançar nos meses?") },
+            text = {
+                Text(
+                    "Entra como renda " +
+                        r.reserves.joinToString("; ") { "em ${MONTH_NAMES[it.month.monthValue - 1]}: ${Money.format(it.cents)}" } +
+                        ". Assim o orçamento desses meses não fica menor por causa das férias.",
+                )
+            },
+            confirmButton = { TextButton(onClick = { confirm = false; onPost() }) { Text("Lançar") } },
+            dismissButton = { TextButton(onClick = { confirm = false }) { Text("Cancelar") } },
+        )
+    }
+}
+
+@Composable
+private fun ReserveRow(label: String, detail: String, cents: Long) {
+    Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text(label, style = MaterialTheme.typography.bodyLarge)
+            Text(detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        MoneyText(cents, style = MaterialTheme.typography.titleSmall)
+    }
 }

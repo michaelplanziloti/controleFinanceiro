@@ -42,6 +42,25 @@ class VacationTest {
             r.salaries,
         )
         assertTrue(r.warnings.isEmpty())
+        // The 20 days pay R$ 6.666,67, less 3/4 of the discounts (their share of days + third): R$ 4.977,61 to keep,
+        // 11 days for December and 9 for January. The rest is free.
+        assertEquals(497_761L, r.reserveCents)
+        assertEquals(
+            listOf(Vacation.Reserve(YearMonth.of(2026, 12), 11, 273_769), Vacation.Reserve(YearMonth.of(2027, 1), 9, 223_992)),
+            r.reserves,
+        )
+        assertEquals(610_364L, r.freeCents)
+    }
+
+    @Test
+    fun keepsMoneyForEachMonthOfTheVacation() {
+        // 23/11 to 03/12: 8 days in November, 3 in December.
+        val r = Vacation.calculate(Vacation.Input(grossCents = 300_000, daysTaken = 11, start = LocalDate.of(2026, 11, 23)))
+        assertEquals(listOf(8, 3), r.reserves.map { it.days })
+        assertEquals(r.reserveCents, r.reserves.sumOf { it.cents })
+        assertEquals(110_000L, r.vacationCents)
+        // No tax at this salary: the whole pay of the days is kept.
+        assertEquals(110_000L - r.inssCents * 3 / 4, r.reserveCents)
     }
 
     @Test
