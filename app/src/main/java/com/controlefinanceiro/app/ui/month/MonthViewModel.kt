@@ -208,6 +208,16 @@ class MonthViewModel(
     /** Puts back expenses exactly as they were (undo of [payAll]). */
     fun restoreExpenses(expenses: List<ExpenseEntity>) = viewModelScope.launch { repo.updateExpenses(expenses) }
 
+    /** End of the month: each subcategory row's target becomes what was posted in it. */
+    fun equalizeTargets(rows: List<ExpenseEntity>) = viewModelScope.launch {
+        repo.updateExpenses(rows.map { it.copy(plannedCents = BudgetCalculator.actual(it)) })
+    }
+
+    /** Moves extras into "Variáveis do casal", with a target that covers what they cost. */
+    fun moveToCouple(extras: List<ExpenseEntity>) = viewModelScope.launch {
+        repo.updateExpenses(extras.map { it.copy(block = ExpenseBlock.COUPLE, personId = null, plannedCents = extraValue(it)) })
+    }
+
     fun saveSubcategory(sub: SubcategoryEntity) = viewModelScope.launch { repo.saveSubcategory(sub.copy(userId = userId)) }
     fun deleteSubcategory(sub: SubcategoryEntity) = viewModelScope.launch { repo.deleteSubcategory(sub) }
     fun setTracked(ids: List<Long>) = viewModelScope.launch { repo.setTracked(userId, ids) }

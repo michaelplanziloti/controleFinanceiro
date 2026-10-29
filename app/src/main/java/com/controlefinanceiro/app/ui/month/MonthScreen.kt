@@ -197,6 +197,7 @@ fun MonthScreen(viewModel: MonthViewModel, contentPadding: PaddingValues, onMenu
     var showNewEntry by remember { mutableStateOf(false) }
     var showTrackerChooser by remember { mutableStateOf(false) }
     var showSearch by remember { mutableStateOf(false) }
+    var showCloseMonth by remember { mutableStateOf(false) }
 
     fun newSubcategory() {
         editingSubcategory = SubcategoryEntity(userId = 0, name = "", block = ExpenseBlock.COUPLE, plannedCents = 0, inTracker = true)
@@ -489,7 +490,7 @@ fun MonthScreen(viewModel: MonthViewModel, contentPadding: PaddingValues, onMenu
                                     },
                                     onChoose = { showTrackerChooser = true },
                                 )
-                                "usage" -> IncomeUsageCard(summary, Modifier) { goTo(ANCHOR_GROUPS) }
+                                "usage" -> IncomeUsageCard(summary, Modifier, onCloseMonth = { showCloseMonth = true }) { goTo(ANCHOR_GROUPS) }
                                 "groups" -> GroupsCard(summary, Modifier) { goTo(it) }
                                 "couple" -> CoupleCard(
                                     summary, Modifier,
@@ -577,6 +578,23 @@ fun MonthScreen(viewModel: MonthViewModel, contentPadding: PaddingValues, onMenu
 
     val budgetAlert by viewModel.budgetAlert.collectAsStateWithLifecycle()
     budgetAlert?.let { BudgetAlertDialog(it, onDismiss = viewModel::dismissBudgetAlert) }
+    if (showCloseMonth && detail != null && summary != null) {
+        CloseMonthSheet(
+            expenses = detail.expenses,
+            summary = summary,
+            onEqualize = { rows ->
+                viewModel.equalizeTargets(rows)
+                offerUndo("${rows.size} ${if (rows.size == 1) "meta igualada" else "metas igualadas"}", SnackbarDuration.Long) { viewModel.restoreExpenses(rows) }
+            },
+            onMove = { extras ->
+                viewModel.moveToCouple(extras)
+                offerUndo("${extras.size} ${if (extras.size == 1) "gasto passou" else "gastos passaram"} para Variáveis do casal", SnackbarDuration.Long) {
+                    viewModel.restoreExpenses(extras)
+                }
+            },
+            onDismiss = { showCloseMonth = false },
+        )
+    }
     if (showSearch) {
         val query by viewModel.searchQuery.collectAsStateWithLifecycle()
         val results by viewModel.searchResults.collectAsStateWithLifecycle()
@@ -885,9 +903,10 @@ private const val HIDDEN_MONEY = "R$ •••••"
 
 /** Same two checks as the spreadsheet summary: actual and planned against the income, without "Fora do orçamento". */
 @Composable
-private fun IncomeUsageCard(summary: MonthSummary, modifier: Modifier, onClick: () -> Unit) {
+private fun IncomeUsageCard(summary: MonthSummary, modifier: Modifier, onCloseMonth: () -> Unit, onClick: () -> Unit) {
     SectionCard(modifier.clip(MaterialTheme.shapes.large).clickable(onClick = onClick), title = "Renda do mês",
-        subtitle = "Sem contar os gastos fora do orçamento") {
+        subtitle = "Sem contar os gastos fora do orçamento",
+        action = { TextButton(onClick = onCloseMonth) { Text("Fechar o mês") } }) {
         UsageLine("Uso da renda", summary.actualCents, summary.incomeCents)
         Spacer(Modifier.height(18.dp))
         UsageLine("Previsto vs renda", summary.plannedCents, summary.incomeCents)
