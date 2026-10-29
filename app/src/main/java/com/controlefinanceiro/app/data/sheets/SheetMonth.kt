@@ -1,6 +1,7 @@
 package com.controlefinanceiro.app.data.sheets
 
 import com.controlefinanceiro.app.data.db.ExpenseBlock
+import com.controlefinanceiro.app.domain.Installments
 import org.json.JSONArray
 import org.json.JSONObject
 import java.text.Normalizer
@@ -23,7 +24,16 @@ data class SheetMonth(
     val items: List<Item> = emptyList(),
 ) {
     /** [subcategory] is the description of the row it adds up in (e.g. "Mercado"). */
-    data class Item(val subcategory: String, val description: String, val date: Long?, val amountCents: Long, val onDay15: Boolean)
+    data class Item(
+        val subcategory: String,
+        val description: String,
+        val date: Long?,
+        val amountCents: Long,
+        val onDay15: Boolean,
+        /** Read from a "(1/2)" after the description; 1 of 1 when there is none. */
+        val installmentNumber: Int = 1,
+        val installmentCount: Int = 1,
+    )
 
     data class Income(val source: String, val person: String?, val amountCents: Long)
     data class Allowance(val person: String, val amountCents: Long)
@@ -84,12 +94,15 @@ object SheetsReader {
 
     private fun items(json: JSONObject): List<SheetMonth.Item> = json.optJSONArray("items")?.objects().orEmpty().mapNotNull { i ->
         val subcategory = i.text("subcategory") ?: return@mapNotNull null
+        val (description, number, count) = Installments.parse(i.text("description") ?: subcategory)
         SheetMonth.Item(
             subcategory = subcategory,
-            description = i.text("description") ?: subcategory,
+            description = description,
             date = i.text("date")?.let(::parseDate),
             amountCents = i.cents("amount"),
             onDay15 = i.optInt("day", 15) != 30,
+            installmentNumber = number,
+            installmentCount = count,
         )
     }
 

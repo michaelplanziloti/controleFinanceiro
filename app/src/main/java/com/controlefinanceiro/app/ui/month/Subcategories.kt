@@ -26,6 +26,7 @@ import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.ReceiptLong
 import androidx.compose.material.icons.outlined.ShoppingBasket
+import androidx.compose.material.icons.outlined.WarningAmber
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
@@ -71,6 +72,7 @@ import com.controlefinanceiro.app.data.sheets.formatDate
 import com.controlefinanceiro.app.data.sheets.nameKey
 import com.controlefinanceiro.app.data.sheets.parseDate
 import com.controlefinanceiro.app.domain.BudgetCalculator
+import com.controlefinanceiro.app.domain.Installments
 import com.controlefinanceiro.app.ui.common.AmountField
 import com.controlefinanceiro.app.ui.common.BudgetBar
 import com.controlefinanceiro.app.ui.common.DropdownField
@@ -255,8 +257,14 @@ fun ItemEditorSheet(
     // An item saved without a date keeps no date; a new one starts on today (or the month's first day).
     var date by remember { mutableStateOf(if (initial != null) initial.date?.let(::formatDate).orEmpty() else formatDate(defaultDate.toEpochDay())) }
     var onDay15 by remember { mutableStateOf(initial?.onDay15 ?: (defaultDate.dayOfMonth <= 15)) }
+    // Installments are chosen when the purchase is added; an existing installment only edits its own month.
+    var split by remember { mutableStateOf(false) }
+    var count by remember { mutableStateOf("2") }
+    var typedIsTotal by remember { mutableStateOf(false) }
+    val installments = count.toIntOrNull()?.takeIf { it in 2..999 }
+    val typed = Money.parse(amount)
     val dateOk = date.isBlank() || parseDate(date) != null
-    val valid = (subId != null || initial != null || hasRow) && Money.parse(amount)?.let { it != 0L } == true && dateOk
+    val valid = (subId != null || initial != null || hasRow) && typed?.let { it != 0L } == true && dateOk && (!split || installments != null)
 
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         Column(
@@ -277,7 +285,48 @@ fun ItemEditorSheet(
                 }
             }
             OutlinedTextField(description, { description = it }, Modifier.fillMaxWidth(), label = { Text("Descrição (opcional)") }, singleLine = true)
-            AmountField("Valor", amount, { amount = it })
+            if (initial != null && initial.installmentCount > 1) {
+                Text(
+                    "Parcela ${initial.installmentNumber} de ${initial.installmentCount}" +
+                        (initial.installmentTotalCents?.let { " · total ${Money.format(it)}" } ?: "") +
+                        ". A alteração vale só para este mês.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            if (initial == null) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Parcelado")
+                        Text("Cada mês novo recebe a próxima parcela", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Switch(checked = split, onCheckedChange = { split = it })
+                }
+            }
+            if (split) {
+                OutlinedTextField(
+                    count, { count = it.filter(Char::isDigit).take(3) }, Modifier.fillMaxWidth(),
+                    label = { Text("Número de parcelas") }, singleLine = true, isError = installments == null,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                )
+                SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                    listOf(false to "Valor da parcela", true to "Valor total").forEachIndexed { index, (total, label) ->
+                        SegmentedButton(selected = typedIsTotal == total, onClick = { typedIsTotal = total }, shape = SegmentedButtonDefaults.itemShape(index, 2)) {
+                            Text(label)
+                        }
+                    }
+                }
+            }
+            AmountField(if (!split) "Valor" else if (typedIsTotal) "Valor total" else "Valor da parcela", amount, { amount = it })
+            if (split && installments != null && typed != null && typed != 0L) {
+                val total = Installments.total(typed, installments, typedIsTotal)
+                val first = Installments.share(total, installments, 1)
+                val other = Installments.share(total, installments, 2)
+                Text(
+                    (if (first == other) "${installments}x de ${Money.format(first)}" else "1ª de ${Money.format(first)} e ${installments - 1}x de ${Money.format(other)}") +
+                        " = ${Money.format(total)}",
+                    style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary,
+                )
+            }
             OutlinedTextField(
                 date, { date = it.filter { c -> c.isDigit() || c == '/' }.take(10) }, Modifier.fillMaxWidth(),
                 label = { Text("Data (dd/mm/aaaa)") }, singleLine = true, isError = !dateOk,
@@ -298,16 +347,16 @@ fun ItemEditorSheet(
                     modifier = Modifier.weight(1f),
                     onClick = {
                         val sub = subcategories.firstOrNull { it.id == subId }
+                        val text = description.trim().ifEmpty { sub?.name ?: initial?.description.orEmpty() }
+                        val item = initial?.copy(description = text, date = parseDate(date), amountCents = typed ?: 0, onDay15 = onDay15)
+                            ?: SubcategoryItemEntity(expenseId = 0, description = text, date = parseDate(date), amountCents = typed ?: 0, onDay15 = onDay15)
+                        val n = installments
                         onSave(
                             subId,
-                            SubcategoryItemEntity(
-                                id = initial?.id ?: 0,
-                                expenseId = initial?.expenseId ?: 0,
-                                description = description.trim().ifEmpty { sub?.name ?: initial?.description.orEmpty() },
-                                date = parseDate(date),
-                                amountCents = Money.parse(amount) ?: 0,
-                                onDay15 = onDay15,
-                            ),
+                            if (split && n != null) {
+                                val total = Installments.total(typed ?: 0, n, typedIsTotal)
+                                item.copy(amountCents = Installments.share(total, n, 1), installmentNumber = 1, installmentCount = n, installmentTotalCents = total)
+                            } else item,
                         )
                     },
                 ) { Text("Salvar") }
@@ -376,7 +425,9 @@ fun SubcategoryRowSheet(
                     Column(Modifier.weight(1f)) {
                         Text(item.description, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         Text(
-                            listOfNotNull(item.date?.let(::formatDate), if (item.onDay15) "dia 15" else "dia 30").joinToString(" · "),
+                            listOfNotNull(
+                                Installments.label(item)?.let { "Parcela $it" }, item.date?.let(::formatDate), if (item.onDay15) "dia 15" else "dia 30",
+                            ).joinToString(" · "),
                             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
@@ -468,5 +519,43 @@ fun TrackerChooserDialog(subcategories: List<SubcategoryEntity>, onSave: (List<L
         },
         confirmButton = { TextButton(onClick = { onSave(chosen.toList()) }) { Text("Salvar") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancelar") } },
+    )
+}
+
+/** Opens when a saved item takes budgets of the month past their planned value. */
+@Composable
+fun BudgetAlertDialog(alert: BudgetAlert, onDismiss: () -> Unit) {
+    val negative = LocalMoneyColors.current.negative
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = { Icon(Icons.Outlined.WarningAmber, null, tint = negative) },
+        title = { Text("Orçamento estourado") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Column(
+                    Modifier.fillMaxWidth().clip(MaterialTheme.shapes.medium).background(MaterialTheme.colorScheme.surfaceContainerHigh).padding(12.dp),
+                ) {
+                    Text("Item que estourou", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            Installments.sheetDescription(alert.item), Modifier.weight(1f),
+                            style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                        )
+                        Text(Money.format(alert.item.amountCents), style = MaterialTheme.typography.titleSmall)
+                    }
+                }
+                alert.lines.forEach { line ->
+                    Column {
+                        Text(line.name, style = MaterialTheme.typography.titleSmall)
+                        Text(
+                            "Previsto ${Money.format(line.plannedCents)} · gasto ${Money.format(line.spentCents)}",
+                            style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Text("Passou ${Money.format(line.spentCents - line.plannedCents)}", style = MaterialTheme.typography.bodyMedium, color = negative)
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Entendi") } },
     )
 }

@@ -11,6 +11,7 @@ import com.controlefinanceiro.app.data.db.PaymentMethodEntity
 import com.controlefinanceiro.app.data.db.PersonEntity
 import com.controlefinanceiro.app.data.db.SubcategoryItemEntity
 import com.controlefinanceiro.app.domain.BudgetCalculator
+import com.controlefinanceiro.app.domain.Installments
 import kotlin.math.absoluteValue
 
 /** Everything needed to rebuild one month tab of the spreadsheet. */
@@ -71,7 +72,7 @@ object SheetsPayload {
                 val row = snapshot.expenses.firstOrNull { it.id == item.expenseId } ?: return@mapNotNull null
                 Json.obj(
                     "subcategory" to row.description,
-                    "description" to item.description,
+                    "description" to Installments.sheetDescription(item),
                     "date" to item.date?.let(::formatDate),
                     "amount" to Money(item.amountCents),
                     "day" to if (item.onDay15) 15 else 30,

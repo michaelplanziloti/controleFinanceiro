@@ -8,6 +8,7 @@ import com.controlefinanceiro.app.data.db.AllowanceEntity
 import com.controlefinanceiro.app.data.db.BudgetSettingsEntity
 import com.controlefinanceiro.app.data.db.CardEntity
 import com.controlefinanceiro.app.data.db.CategoryEntity
+import com.controlefinanceiro.app.data.db.ExpenseBlock
 import com.controlefinanceiro.app.data.db.ExpenseEntity
 import com.controlefinanceiro.app.data.db.IncomeEntity
 import com.controlefinanceiro.app.data.db.MonthEntity
@@ -45,6 +46,11 @@ data class MonthDetail(
     val expenses: List<ExpenseEntity>,
     val items: List<SubcategoryItemEntity> = emptyList(),
 )
+
+/** An item that took one or more budgets of the month past their planned value. */
+data class BudgetAlert(val item: SubcategoryItemEntity, val lines: List<Line>) {
+    data class Line(val name: String, val plannedCents: Long, val spentCents: Long)
+}
 
 data class MonthUiState(
     val loading: Boolean = true,
@@ -193,16 +199,65 @@ class MonthViewModel(
     fun deleteSubcategory(sub: SubcategoryEntity) = viewModelScope.launch { repo.deleteSubcategory(sub) }
     fun setTracked(ids: List<Long>) = viewModelScope.launch { repo.setTracked(userId, ids) }
 
+    /** Set when the last saved item went over a budget; the screen shows it until dismissed. */
+    val budgetAlert = MutableStateFlow<BudgetAlert?>(null)
+
+    fun dismissBudgetAlert() {
+        budgetAlert.value = null
+    }
+
     /** Saves an item in the open month; a chosen subcategory decides the row it adds up in. */
     fun saveItem(subcategoryId: Long?, item: SubcategoryItemEntity, previous: SubcategoryItemEntity?) = viewModelScope.launch {
-        val monthId = state.value.detail?.month?.id ?: return@launch
+        val before = state.value
+        val monthId = before.detail?.month?.id ?: return@launch
         val rowId = subcategoryId?.let { repo.rowFor(it, monthId) } ?: item.expenseId
+        val alert = overBudget(before, rowId, subcategoryId, item.copy(expenseId = rowId), previous)
         if (previous != null && previous.expenseId != rowId) {
             repo.deleteItem(previous)
             repo.saveItem(item.copy(id = 0, expenseId = rowId))
         } else {
-            repo.saveItem(item.copy(expenseId = rowId))
+            repo.saveItem(item.copy(expenseId = rowId), newPurchase = previous == null)
         }
+        if (alert != null) budgetAlert.value = alert
+    }
+
+    /**
+     * The budgets that were within their planned value before [item] and are past it after: the
+     * item's row, the group of its block (e.g. Variável) and, in Mesadas, the person's allowance.
+     */
+    private fun overBudget(
+        state: MonthUiState, rowId: Long, subcategoryId: Long?, item: SubcategoryItemEntity, previous: SubcategoryItemEntity?,
+    ): BudgetAlert? {
+        val detail = state.detail ?: return null
+        val settings = state.reference.settings ?: BudgetSettingsEntity(userId = userId)
+        // A row created just now for the subcategory is not in the state yet.
+        val row = detail.expenses.firstOrNull { it.id == rowId }
+            ?: state.reference.subcategories.firstOrNull { it.id == subcategoryId }?.let { sub ->
+                ExpenseEntity(
+                    id = rowId, monthId = detail.month.id, block = sub.block, description = sub.name, plannedCents = sub.plannedCents,
+                    subcategoryId = sub.id, personId = if (sub.block == ExpenseBlock.PERSONAL) sub.personId ?: state.reference.people.firstOrNull()?.id else null,
+                )
+            }
+            ?: return null
+        fun ExpenseEntity.plus(cents: Long) = copy(paidDay15Cents = paidDay15Cents + cents)
+        val beforeRows = detail.expenses.filter { it.id != rowId } + row
+        val afterRows = beforeRows.map {
+            var e = it
+            if (previous != null && e.id == previous.expenseId) e = e.plus(-previous.amountCents)
+            if (e.id == rowId) e = e.plus(item.amountCents)
+            e
+        }
+        val lines = mutableListOf<BudgetAlert.Line>()
+        fun check(name: String, planned: Long, spentBefore: Long, spentAfter: Long) {
+            if (planned > 0 && spentBefore <= planned && spentAfter > planned) lines += BudgetAlert.Line(name, planned, spentAfter)
+        }
+        val rowAfter = afterRows.first { it.id == rowId }
+        check(row.description, BudgetCalculator.resolvedPlanned(row, state.summary?.incomeCents ?: 0, settings), BudgetCalculator.actual(row), BudgetCalculator.actual(rowAfter))
+        val sumBefore = BudgetCalculator.summarize(detail.incomes, detail.allowances, beforeRows, state.reference.people, settings)
+        val sumAfter = BudgetCalculator.summarize(detail.incomes, detail.allowances, afterRows, state.reference.people, settings)
+        sumBefore.groups.zip(sumAfter.groups).forEach { (b, a) -> check("Total ${a.group.label}", a.plannedCents, b.actualCents, a.actualCents) }
+        sumBefore.people.zip(sumAfter.people).forEach { (b, a) -> check("Mesada de ${a.person.name}", a.allowanceCents, b.spentCents, a.spentCents) }
+        return lines.takeIf { it.isNotEmpty() }?.let { BudgetAlert(item, it) }
     }
 
     fun deleteItem(item: SubcategoryItemEntity) = viewModelScope.launch { repo.deleteItem(item) }

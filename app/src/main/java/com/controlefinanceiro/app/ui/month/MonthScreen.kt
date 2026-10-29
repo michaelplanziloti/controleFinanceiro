@@ -575,6 +575,8 @@ fun MonthScreen(viewModel: MonthViewModel, contentPadding: PaddingValues, onMenu
         }
     }
 
+    val budgetAlert by viewModel.budgetAlert.collectAsStateWithLifecycle()
+    budgetAlert?.let { BudgetAlertDialog(it, onDismiss = viewModel::dismissBudgetAlert) }
     if (showSearch) {
         val query by viewModel.searchQuery.collectAsStateWithLifecycle()
         val results by viewModel.searchResults.collectAsStateWithLifecycle()

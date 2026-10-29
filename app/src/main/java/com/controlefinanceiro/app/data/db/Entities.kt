@@ -128,6 +128,11 @@ data class SubcategoryItemEntity(
     /** Which payday covered it, like the spreadsheet: true = "Pago dia 15", false = "Pago dia 30". */
     @ColumnInfo(name = "on_day15") val onDay15: Boolean = true,
     @ColumnInfo(name = "created_at", defaultValue = "0") val createdAt: Long = System.currentTimeMillis(),
+    /** Which installment this is (1-based); a purchase paid at once is 1 of 1. */
+    @ColumnInfo(name = "installment_number", defaultValue = "1") val installmentNumber: Int = 1,
+    @ColumnInfo(name = "installment_count", defaultValue = "1") val installmentCount: Int = 1,
+    /** Whole purchase value, split over the installments (the first one takes the leftover cents). */
+    @ColumnInfo(name = "installment_total_cents") val installmentTotalCents: Long? = null,
 )
 
 /** Budget rule: tithe over gross income, the other three over income after tithe. Values in basis points (10000 = 100%). */

@@ -32,7 +32,7 @@ class Converters {
         SubcategoryEntity::class,
         SubcategoryItemEntity::class,
     ],
-    version = 6,
+    version = 7,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -44,13 +44,22 @@ abstract class AppDatabase : RoomDatabase() {
     companion object {
         fun build(context: Context): AppDatabase =
             Room.databaseBuilder(context, AppDatabase::class.java, "controle_financeiro.db")
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
                 .build()
 
         /**
          * Adds cards and the expense link. Payment methods named like "Cartão Santander" become the
          * card "Santander", and their expenses move to the "Cartão de crédito" payment method.
          */
+        /** Items paid in installments: which one, how many, and the whole value. */
+        val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `subcategory_items` ADD COLUMN `installment_number` INTEGER NOT NULL DEFAULT 1")
+                db.execSQL("ALTER TABLE `subcategory_items` ADD COLUMN `installment_count` INTEGER NOT NULL DEFAULT 1")
+                db.execSQL("ALTER TABLE `subcategory_items` ADD COLUMN `installment_total_cents` INTEGER")
+            }
+        }
+
         /** When each expense and item was added, to list the newest first. */
         val MIGRATION_5_6 = object : Migration(5, 6) {
             override fun migrate(db: SupportSQLiteDatabase) {
