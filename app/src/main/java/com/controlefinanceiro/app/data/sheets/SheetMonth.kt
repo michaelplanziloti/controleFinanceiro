@@ -20,8 +20,11 @@ data class SheetMonth(
     val incomes: List<Income>,
     val allowances: List<Allowance>,
     val expenses: List<Expense>,
-    /** Purchases of subcategories, listed in the tab away from the main area. */
-    val items: List<Item> = emptyList(),
+    /**
+     * Purchases of subcategories, listed in the tab away from the main area; null when the tab has
+     * no such area (an old script, or a tab the app never wrote items to), so the app's are kept.
+     */
+    val items: List<Item>? = emptyList(),
 ) {
     /** [subcategory] is the description of the row it adds up in (e.g. "Mercado"). */
     data class Item(
@@ -92,7 +95,7 @@ object SheetsReader {
         items = items(json),
     )
 
-    private fun items(json: JSONObject): List<SheetMonth.Item> = json.optJSONArray("items")?.objects().orEmpty().mapNotNull { i ->
+    private fun items(json: JSONObject): List<SheetMonth.Item>? = json.optJSONArray("items")?.objects()?.mapNotNull { i ->
         val subcategory = i.text("subcategory") ?: return@mapNotNull null
         val (description, number, count) = Installments.parse(i.text("description") ?: subcategory)
         SheetMonth.Item(

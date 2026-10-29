@@ -315,9 +315,11 @@ function lerMes(aba) {
   return { incomes: rendas, allowances: mesadas, expenses: despesas, items: lerItens(aba) };
 }
 
+// null quando a aba ainda não tem a área de itens: o app então mantém os itens que já tem.
 function lerItens(aba) {
+  if (aba.getMaxColumns() < COLUNA_ITENS + CAMPOS_ITENS.length - 1) return null;
   const linhas = aba.getLastRow() - PRIMEIRA_LINHA + 1;
-  if (linhas <= 0 || aba.getMaxColumns() < COLUNA_ITENS + CAMPOS_ITENS.length - 1) return [];
+  if (linhas <= 0) return [];
   return aba.getRange(PRIMEIRA_LINHA, COLUNA_ITENS, linhas, CAMPOS_ITENS.length).getValues().filter(function (r) {
     return textoLido(r[0]) !== '' && numero(r[3]) !== 0;
   }).map(function (r) {

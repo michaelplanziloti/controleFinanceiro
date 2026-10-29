@@ -543,7 +543,14 @@ class FinanceRepository(private val db: AppDatabase, private val onMonthChanged:
         // Items go to the row with their subcategory's name (a new row in the block of that
         // subcategory, or in "Variáveis do casal", if the sheet has items without one).
         val rows = expenses.zip(ids).associate { (row, id) -> row.description.nameKey() to id }.toMutableMap()
-        sheet.items.groupBy { it.subcategory.nameKey() }.forEach { (key, items) ->
+        if (sheet.items == null) {
+            // The sheet has no items area (an old script): the app's items stay in their rows, and a
+            // row whose paid values differ from them goes back to the sheet below.
+            oldItems.values.flatten().forEach { item ->
+                rows[rowNames[item.expenseId]]?.let { rowId -> months.insertItems(listOf(item.copy(id = 0, expenseId = rowId))) }
+            }
+        }
+        sheet.items.orEmpty().groupBy { it.subcategory.nameKey() }.forEach { (key, items) ->
             val rowId = rows[key] ?: run {
                 val sub = subcategories[key]
                 months.insertExpense(
