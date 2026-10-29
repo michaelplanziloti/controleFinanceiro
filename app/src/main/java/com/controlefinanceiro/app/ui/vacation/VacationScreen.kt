@@ -66,9 +66,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.controlefinanceiro.app.data.db.PersonEntity
 import com.controlefinanceiro.app.data.db.VacationEntity
 import com.controlefinanceiro.app.data.sheets.formatDate
-import com.controlefinanceiro.app.data.sheets.parseDate
 import com.controlefinanceiro.app.domain.Vacation
 import com.controlefinanceiro.app.ui.common.AmountField
+import com.controlefinanceiro.app.ui.common.DateField
 import com.controlefinanceiro.app.ui.common.DropdownField
 import com.controlefinanceiro.app.ui.common.IconBadge
 import com.controlefinanceiro.app.ui.common.MONTH_NAMES
@@ -76,6 +76,8 @@ import com.controlefinanceiro.app.ui.common.Money
 import com.controlefinanceiro.app.ui.common.MoneyText
 import com.controlefinanceiro.app.ui.common.Pill
 import com.controlefinanceiro.app.ui.common.SectionCard
+import com.controlefinanceiro.app.ui.common.dateDigits
+import com.controlefinanceiro.app.ui.common.parseDateDigits
 import com.controlefinanceiro.app.ui.common.shortName
 import com.controlefinanceiro.app.ui.theme.LocalHeroColors
 import com.controlefinanceiro.app.ui.theme.LocalMoneyColors
@@ -216,7 +218,7 @@ private fun VacationEditorSheet(
 ) {
     var personId by remember { mutableStateOf(initial.personId) }
     var gross by remember { mutableStateOf(Money.toInput(initial.grossCents)) }
-    var start by remember { mutableStateOf(initial.startDate?.let(::formatDate).orEmpty()) }
+    var start by remember { mutableStateOf(dateDigits(initial.startDate)) }
     var taken by remember { mutableStateOf(initial.daysTaken.toString()) }
     var sold by remember { mutableStateOf(initial.daysSold) }
     var dependents by remember { mutableStateOf(initial.dependents.toString()) }
@@ -224,8 +226,8 @@ private fun VacationEditorSheet(
     var note by remember { mutableStateOf(initial.note) }
     var confirmPost by remember { mutableStateOf(false) }
 
-    val startDay = start.takeIf { it.isNotBlank() }?.let(::parseDate)
-    val dateOk = start.isBlank() || startDay != null
+    val startDay = parseDateDigits(start)
+    val dateOk = start.isEmpty() || startDay != null
     val vacation = initial.copy(
         personId = personId,
         grossCents = Money.parse(gross) ?: 0,
@@ -249,11 +251,7 @@ private fun VacationEditorSheet(
                 DropdownField("De quem", people, people.firstOrNull { it.id == personId }, { it.name }, { personId = it?.id }, noneLabel = "Ninguém em especial")
             }
             AmountField("Salário bruto do mês", gross, { gross = it })
-            OutlinedTextField(
-                start, { start = it.filter { c -> c.isDigit() || c == '/' }.take(10) }, Modifier.fillMaxWidth(),
-                label = { Text("Primeiro dia de férias (dd/mm/aaaa)") }, singleLine = true, isError = !dateOk,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-            )
+            DateField("Primeiro dia de férias", start, { start = it }, Modifier.fillMaxWidth())
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 OutlinedTextField(
                     taken, { taken = it.filter(Char::isDigit).take(2) }, Modifier.weight(1f), label = { Text("Dias tirados") }, singleLine = true,
