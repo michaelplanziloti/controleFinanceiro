@@ -81,8 +81,9 @@ data class MonthSummary(
  */
 object BudgetCalculator {
 
+    /** The tithe always follows the month's income, so any change to an income recalculates it. */
     fun resolvedPlanned(expense: ExpenseEntity, incomeCents: Long, settings: BudgetSettingsEntity): Long =
-        if (expense.autoPlanned && expense.block == ExpenseBlock.TITHE) percentOf(incomeCents, settings.titheBp)
+        if (expense.block == ExpenseBlock.TITHE) percentOf(incomeCents, settings.titheBp)
         else expense.plannedCents
 
     fun actual(expense: ExpenseEntity): Long = expense.paidDay30Cents + expense.paidDay15Cents

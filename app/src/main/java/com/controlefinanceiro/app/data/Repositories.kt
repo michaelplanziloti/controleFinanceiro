@@ -527,8 +527,8 @@ class FinanceRepository(private val db: AppDatabase, private val onMonthChanged:
                 // Personal items always belong to someone; the first person is the fallback.
                 personId = e.person?.let { names.person(it) } ?: if (e.block == ExpenseBlock.PERSONAL) names.firstPerson() else null,
                 dueDay = e.dueDay,
-                plannedCents = if (e.autoPlanned) 0 else e.plannedCents,
-                autoPlanned = e.autoPlanned,
+                plannedCents = if (e.autoPlanned || e.block == ExpenseBlock.TITHE) 0 else e.plannedCents,
+                autoPlanned = e.autoPlanned || e.block == ExpenseBlock.TITHE,
                 paidDay30Cents = e.paid30Cents,
                 paidDay15Cents = e.paid15Cents,
                 isPaid = e.paid,

@@ -4,6 +4,7 @@ import com.controlefinanceiro.app.data.db.AllowanceEntity
 import com.controlefinanceiro.app.data.db.BudgetSettingsEntity
 import com.controlefinanceiro.app.data.db.CardEntity
 import com.controlefinanceiro.app.data.db.CategoryEntity
+import com.controlefinanceiro.app.data.db.ExpenseBlock
 import com.controlefinanceiro.app.data.db.ExpenseEntity
 import com.controlefinanceiro.app.data.db.IncomeEntity
 import com.controlefinanceiro.app.data.db.MonthEntity
@@ -62,7 +63,7 @@ object SheetsPayload {
                     "person" to personName(e.personId),
                     "dueDay" to e.dueDay,
                     "planned" to Money(BudgetCalculator.resolvedPlanned(e, income, snapshot.settings)),
-                    "autoPlanned" to e.autoPlanned,
+                    "autoPlanned" to (e.autoPlanned || e.block == ExpenseBlock.TITHE),
                     "paid30" to Money(e.paidDay30Cents),
                     "paid15" to Money(e.paidDay15Cents),
                     "paid" to e.isPaid,

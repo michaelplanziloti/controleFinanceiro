@@ -76,7 +76,6 @@ fun ExpenseEditorSheet(
     var cardId by remember { mutableStateOf(initial.cardId) }
     var dueDay by remember { mutableStateOf(initial.dueDay.orEmpty()) }
     var planned by remember { mutableStateOf(Money.toInput(initial.plannedCents)) }
-    var auto by remember { mutableStateOf(initial.autoPlanned) }
     var paid30 by remember { mutableStateOf(Money.toInput(initial.paidDay30Cents)) }
     var paid15 by remember { mutableStateOf(Money.toInput(initial.paidDay15Cents)) }
     var isPaid by remember { mutableStateOf(initial.isPaid) }
@@ -132,10 +131,10 @@ fun ExpenseEditorSheet(
             }
             DropdownField("Cartão", reference.cards, reference.cards.firstOrNull { it.id == cardId }, { it.name }, { cardId = it?.id })
             if (block == ExpenseBlock.TITHE) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Calcular pela renda", Modifier.weight(1f))
-                    Switch(checked = auto, onCheckedChange = { auto = it })
-                }
+                Text(
+                    "A meta é calculada pela renda do mês e se ajusta sempre que uma renda muda.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
             if (existing != null) {
                 Text(
@@ -168,7 +167,7 @@ fun ExpenseEditorSheet(
                     }
                 }
             }
-            if (!(block == ExpenseBlock.TITHE && auto)) {
+            if (block != ExpenseBlock.TITHE) {
                 AmountField(if (!splitting) "Meta" else if (typedIsTotal) "Valor total" else "Valor da parcela", planned, { planned = it })
             }
             if (splitting && installments != null && typed != null && typed != 0L) {
@@ -218,7 +217,7 @@ fun ExpenseEditorSheet(
                                 dueDay = dueDay.trim().ifEmpty { null },
                                 plannedCents = if (total != null && n != null) Installments.share(total, n, 1) else typed ?: 0,
                                 installmentTotalCents = total ?: initial.installmentTotalCents,
-                                autoPlanned = block == ExpenseBlock.TITHE && auto,
+                                autoPlanned = block == ExpenseBlock.TITHE,
                                 paidDay30Cents = Money.parse(paid30) ?: 0,
                                 paidDay15Cents = Money.parse(paid15) ?: 0,
                                 isPaid = isPaid,

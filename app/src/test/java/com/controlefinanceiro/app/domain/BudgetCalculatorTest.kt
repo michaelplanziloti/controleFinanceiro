@@ -61,6 +61,14 @@ class BudgetCalculatorTest {
     }
 
     @Test
+    fun titheTypedByHandStillFollowsIncome() {
+        // A tithe row saved with an old fixed value (like a month copied from the sheet) is recalculated too.
+        val stale = expense(ExpenseBlock.TITHE, 129_680, auto = false)
+        assertEquals(100_000, BudgetCalculator.resolvedPlanned(stale, 1_000_000, settings))
+        assertEquals(120_000, BudgetCalculator.resolvedPlanned(stale, 1_200_000, settings))
+    }
+
+    @Test
     fun variableUsesCoupleExpensesPlusAllowances() {
         assertEquals(80_000 + 90_000, group(BudgetGroup.VARIABLE).plannedCents)
         assertEquals(50_000 + 15_000 + 12_000, group(BudgetGroup.VARIABLE).actualCents)
