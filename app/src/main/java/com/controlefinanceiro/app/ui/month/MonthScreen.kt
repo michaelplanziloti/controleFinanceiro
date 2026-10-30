@@ -129,6 +129,7 @@ import com.controlefinanceiro.app.ui.common.IconBadge
 import com.controlefinanceiro.app.ui.common.LabelValue
 import com.controlefinanceiro.app.ui.common.Money
 import com.controlefinanceiro.app.ui.common.MoneyText
+import com.controlefinanceiro.app.ui.common.NoteLine
 import com.controlefinanceiro.app.ui.common.Pill
 import com.controlefinanceiro.app.ui.common.SectionCard
 import com.controlefinanceiro.app.ui.common.UsageRing
@@ -1226,6 +1227,13 @@ private fun ExpenseRow(
                     Text(details, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
+                if (expense.fundPaidCents > 0) {
+                    Text(
+                        "Pago com ${expense.fundLabel ?: "PLR/férias"} · ${Money.format(expense.fundPaidCents)}",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                NoteLine(expense.note)
             }
             Spacer(Modifier.width(8.dp))
             Column(horizontalAlignment = Alignment.End) {
@@ -1419,7 +1427,7 @@ private fun ExpenseListSheet(
             Text(filter.title, style = MaterialTheme.typography.titleLarge)
             Text(
                 "${expenses.size} ${if (expenses.size == 1) "lançamento" else "lançamentos"} · " +
-                    "${Money.format(expenses.sumOf { BudgetCalculator.actual(it) })} " +
+                    "${Money.format(expenses.sumOf { if (isCard) BudgetCalculator.billedActual(it) else BudgetCalculator.actual(it) })} " +
                     "de ${Money.format(expenses.sumOf(plannedOf))}",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

@@ -23,7 +23,7 @@ object Projection {
             e.block in RECURRING || e.subcategoryId != null -> e.plannedCents
             else -> return@mapNotNull null
         }
-        e.copy(plannedCents = planned, paidDay15Cents = 0, paidDay30Cents = 0, isPaid = false)
+        e.copy(plannedCents = planned, paidDay15Cents = 0, paidDay30Cents = 0, isPaid = false, fundPaidCents = 0, fundLabel = null)
     }
 
     /** Months from (y1, m1) to (y2, m2). */

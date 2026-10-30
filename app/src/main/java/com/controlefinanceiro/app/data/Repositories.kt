@@ -150,6 +150,7 @@ class FinanceRepository(private val db: AppDatabase, private val onMonthChanged:
     }
 
     private suspend fun deleteFundRows(kind: FundKind, ownerId: Long) {
+        funds.expensesOf(kind, ownerId).mapNotNull { unpayEntry(it) }.distinct().forEach { changed(it) }
         funds.deleteIncomesOf(kind, ownerId)
         funds.deleteExpensesOf(kind, ownerId)
     }
@@ -158,8 +159,57 @@ class FinanceRepository(private val db: AppDatabase, private val onMonthChanged:
     fun observeFundExpenses(kind: FundKind, ownerId: Long) = funds.observeExpenses(kind, ownerId)
     suspend fun saveFundIncome(income: FundIncomeEntity) = funds.upsertIncome(income)
     suspend fun deleteFundIncome(income: FundIncomeEntity) = funds.deleteIncome(income)
-    suspend fun saveFundExpense(expense: FundExpenseEntity) = funds.upsertExpense(expense)
-    suspend fun deleteFundExpense(expense: FundExpenseEntity) = funds.deleteExpense(expense)
+    /** Saves spending; when it paid a month's entry, the entry follows a change of the value. */
+    suspend fun saveFundExpense(expense: FundExpenseEntity) {
+        val month = db.withTransaction {
+            val before = if (expense.id == 0L) null else funds.expense(expense.id)
+            funds.upsertExpense(expense)
+            val linked = expense.linkedExpenseId ?: return@withTransaction null
+            val entry = months.expense(linked) ?: return@withTransaction null
+            val delta = expense.paidCents - (before?.paidCents ?: 0)
+            if (delta == 0L) return@withTransaction null
+            months.updateExpense(entry.copy(fundPaidCents = maxOf(0, entry.fundPaidCents + delta)))
+            entry.monthId
+        }
+        month?.let { changed(it) }
+    }
+
+    suspend fun deleteFundExpense(expense: FundExpenseEntity) {
+        val month = db.withTransaction {
+            funds.deleteExpense(expense)
+            unpayEntry(expense)
+        }
+        month?.let { changed(it) }
+    }
+
+    /** The entries of a month, to pick one for a vacation or PLR to pay. */
+    suspend fun monthEntries(monthId: Long): List<ExpenseEntity> = months.expenses(monthId)
+
+    /**
+     * Saves [spending] of a vacation or PLR that pays the month's entry [entryId]: the entry is
+     * marked paid ("baixa") and remembers how much [label] (e.g. "PLR") paid, so it comes off the
+     * month's target.
+     */
+    suspend fun payEntryWithFund(spending: FundExpenseEntity, entryId: Long, label: String) {
+        val month = db.withTransaction {
+            val entry = months.expense(entryId) ?: return@withTransaction null
+            funds.upsertExpense(spending.copy(linkedExpenseId = entryId))
+            months.updateExpense(entry.copy(isPaid = true, fundPaidCents = entry.fundPaidCents + spending.paidCents, fundLabel = label))
+            entry.monthId
+        }
+        month?.let { changed(it) }
+    }
+
+    /** Spending that paid an entry is gone: the entry goes back to the month's money. Returns its month. */
+    private suspend fun unpayEntry(spending: FundExpenseEntity): Long? {
+        val entry = spending.linkedExpenseId?.let { months.expense(it) } ?: return null
+        val left = maxOf(0, entry.fundPaidCents - spending.paidCents)
+        months.updateExpense(
+            if (left > 0) entry.copy(fundPaidCents = left)
+            else entry.copy(fundPaidCents = 0, fundLabel = null, isPaid = false)
+        )
+        return entry.monthId
+    }
 
     /** Puts a PLR's net value as income in the month it is paid; false when that month does not exist yet. */
     suspend fun postPlr(plr: PlrEntity, userId: Long, year: Int, month: Int, source: String, cents: Long): Boolean {
@@ -214,7 +264,7 @@ class FinanceRepository(private val db: AppDatabase, private val onMonthChanged:
             // Entries in installments are not copied: the next installment comes below instead.
             months.insertExpenses(
                 months.expenses(previous.id).filter { it.block in recurring && !Installments.isInstallment(it) }.map {
-                    it.copy(id = 0, monthId = monthId, paidDay30Cents = 0, paidDay15Cents = 0, isPaid = false)
+                    it.copy(id = 0, monthId = monthId, paidDay30Cents = 0, paidDay15Cents = 0, isPaid = false, fundPaidCents = 0, fundLabel = null)
                 }
             )
         } else {
@@ -514,9 +564,13 @@ class FinanceRepository(private val db: AppDatabase, private val onMonthChanged:
             months.putAllowance(AllowanceEntity(monthId = monthId, personId = names.person(it.person), amountCents = it.amountCents))
         }
         val subcategories = ref.subcategories(userId).associateBy { it.name.nameKey() }
+        // The app's own data the sheet does not hold (notes, what a vacation or PLR paid) stays.
+        val previous = mutableListOf<ExpenseEntity?>()
         val expenses = sheet.expenses.mapIndexed { index, e ->
             val (methodId, cardId) = names.payment(e.payment)
             val before = rowsBefore[e.block.name + "|" + e.description.nameKey()]?.removeFirstOrNull()
+            previous += before
+            val fundPaid = before?.fundPaidCents ?: 0
             ExpenseEntity(
                 monthId = monthId,
                 block = e.block,
@@ -527,7 +581,8 @@ class FinanceRepository(private val db: AppDatabase, private val onMonthChanged:
                 // Personal items always belong to someone; the first person is the fallback.
                 personId = e.person?.let { names.person(it) } ?: if (e.block == ExpenseBlock.PERSONAL) names.firstPerson() else null,
                 dueDay = e.dueDay,
-                plannedCents = if (e.autoPlanned || e.block == ExpenseBlock.TITHE) 0 else e.plannedCents,
+                // The sheet has the target less what a vacation or PLR paid; the app keeps the whole one.
+                plannedCents = if (e.autoPlanned || e.block == ExpenseBlock.TITHE) 0 else e.plannedCents + fundPaid,
                 autoPlanned = e.autoPlanned || e.block == ExpenseBlock.TITHE,
                 paidDay30Cents = e.paid30Cents,
                 paidDay15Cents = e.paid15Cents,
@@ -536,9 +591,13 @@ class FinanceRepository(private val db: AppDatabase, private val onMonthChanged:
                 subcategoryId = subcategories[e.description.nameKey()]?.id,
                 createdAt = before?.createdAt ?: now,
                 installmentTotalCents = before?.installmentTotalCents,
+                note = before?.note.orEmpty(),
+                fundPaidCents = fundPaid,
+                fundLabel = before?.fundLabel,
             )
         }
         val ids = months.insertExpenses(expenses)
+        previous.zip(ids).forEach { (before, id) -> if (before != null) funds.relink(before.id, id) }
 
         // Items go to the row with their subcategory's name (a new row in the block of that
         // subcategory, or in "Variáveis do casal", if the sheet has items without one).
@@ -563,6 +622,7 @@ class FinanceRepository(private val db: AppDatabase, private val onMonthChanged:
                 SubcategoryItemEntity(
                     expenseId = rowId, description = it.description, date = it.date, amountCents = it.amountCents, onDay15 = it.onDay15,
                     createdAt = old?.createdAt ?: now,
+                    note = old?.note.orEmpty(),
                     installmentNumber = it.installmentNumber,
                     installmentCount = it.installmentCount,
                     // The sheet only shows "(1/2)"; the whole value comes from the app's copy when it matches.

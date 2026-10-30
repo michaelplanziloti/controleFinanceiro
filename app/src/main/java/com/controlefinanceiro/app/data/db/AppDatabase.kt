@@ -36,7 +36,7 @@ class Converters {
         FundIncomeEntity::class,
         FundExpenseEntity::class,
     ],
-    version = 10,
+    version = 11,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -50,13 +50,25 @@ abstract class AppDatabase : RoomDatabase() {
     companion object {
         fun build(context: Context): AppDatabase =
             Room.databaseBuilder(context, AppDatabase::class.java, "controle_financeiro.db")
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11)
                 .build()
 
         /**
          * Adds cards and the expense link. Payment methods named like "Cartão Santander" become the
          * card "Santander", and their expenses move to the "Cartão de crédito" payment method.
          */
+        /** Notes on entries, purchases and vacation/PLR spending, and entries paid with a vacation or PLR. */
+        val MIGRATION_10_11 = object : Migration(10, 11) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `expenses` ADD COLUMN `note` TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE `expenses` ADD COLUMN `fund_paid_cents` INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE `expenses` ADD COLUMN `fund_label` TEXT")
+                db.execSQL("ALTER TABLE `subcategory_items` ADD COLUMN `note` TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE `fund_expenses` ADD COLUMN `note` TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE `fund_expenses` ADD COLUMN `linked_expense_id` INTEGER")
+            }
+        }
+
         /** PLRs, and the money and spending of each vacation and PLR, apart from the months. */
         val MIGRATION_9_10 = object : Migration(9, 10) {
             override fun migrate(db: SupportSQLiteDatabase) {

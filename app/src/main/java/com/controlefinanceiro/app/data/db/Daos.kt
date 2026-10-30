@@ -317,4 +317,14 @@ interface FundDao {
 
     @Query("DELETE FROM fund_expenses WHERE kind = :kind AND owner_id = :ownerId")
     suspend fun deleteExpensesOf(kind: FundKind, ownerId: Long)
+
+    @Query("SELECT * FROM fund_expenses WHERE kind = :kind AND owner_id = :ownerId")
+    suspend fun expensesOf(kind: FundKind, ownerId: Long): List<FundExpenseEntity>
+
+    @Query("SELECT * FROM fund_expenses WHERE id = :id")
+    suspend fun expense(id: Long): FundExpenseEntity?
+
+    /** A month's entry got a new id (the month came back from the sheet): its spending follows it. */
+    @Query("UPDATE fund_expenses SET linked_expense_id = :newId WHERE linked_expense_id = :oldId")
+    suspend fun relink(oldId: Long, newId: Long)
 }

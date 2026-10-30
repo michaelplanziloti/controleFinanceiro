@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.controlefinanceiro.app.data.FinanceRepository
 import com.controlefinanceiro.app.data.db.BudgetSettingsEntity
+import com.controlefinanceiro.app.data.db.ExpenseEntity
 import com.controlefinanceiro.app.data.db.FundExpenseEntity
 import com.controlefinanceiro.app.data.db.FundIncomeEntity
 import com.controlefinanceiro.app.data.db.FundKind
@@ -34,6 +35,17 @@ abstract class FundViewModel(protected val userId: Long, protected val repo: Fin
     fun saveIncome(income: FundIncomeEntity) = viewModelScope.launch { repo.saveFundIncome(income) }
     fun deleteIncome(income: FundIncomeEntity) = viewModelScope.launch { repo.deleteFundIncome(income) }
     fun saveExpense(expense: FundExpenseEntity) = viewModelScope.launch { repo.saveFundExpense(expense) }
+
+    /** Name the month's entries show for what this tab paid, like "PLR" or "férias". */
+    protected abstract val payLabel: String
+
+    suspend fun entriesOf(monthId: Long): List<ExpenseEntity> = repo.monthEntries(monthId)
+
+    /** Pays a month's entry with this money: the spending goes here and the entry gets "baixa". */
+    fun payEntry(spending: FundExpenseEntity, entry: ExpenseEntity) = viewModelScope.launch {
+        repo.payEntryWithFund(spending, entry.id, payLabel)
+        message.value = "Baixa dada em ${entry.description}"
+    }
     fun deleteExpense(expense: FundExpenseEntity) = viewModelScope.launch { repo.deleteFundExpense(expense) }
 
     /** Marks paid with its planned value, or back to unpaid (keeping the value typed). */

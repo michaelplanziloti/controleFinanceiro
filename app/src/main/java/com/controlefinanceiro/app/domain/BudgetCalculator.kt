@@ -81,12 +81,24 @@ data class MonthSummary(
  */
 object BudgetCalculator {
 
-    /** The tithe always follows the month's income, so any change to an income recalculates it. */
+    /**
+     * The tithe always follows the month's income, so any change to an income recalculates it. What
+     * a vacation or PLR paid of an entry comes off its target, since the salary does not pay it.
+     */
     fun resolvedPlanned(expense: ExpenseEntity, incomeCents: Long, settings: BudgetSettingsEntity): Long =
         if (expense.block == ExpenseBlock.TITHE) percentOf(incomeCents, settings.titheBp)
-        else expense.plannedCents
+        else if (expense.fundPaidCents == 0L) expense.plannedCents // may be negative, like a refund
+        else maxOf(0, expense.plannedCents - expense.fundPaidCents)
 
-    fun actual(expense: ExpenseEntity): Long = expense.paidDay30Cents + expense.paidDay15Cents
+    /** What the card or payment method is charged: the whole target, even the part a vacation or PLR pays. */
+    fun billedPlanned(expense: ExpenseEntity, incomeCents: Long, settings: BudgetSettingsEntity): Long =
+        resolvedPlanned(expense.copy(fundPaidCents = 0), incomeCents, settings)
+
+    /** What the month's salary paid: the paid values, less the part a vacation or PLR covered. */
+    fun actual(expense: ExpenseEntity): Long = billedActual(expense).let { it - minOf(maxOf(it, 0), expense.fundPaidCents) }
+
+    /** Everything paid, as the card or payment method sees it. */
+    fun billedActual(expense: ExpenseEntity): Long = expense.paidDay30Cents + expense.paidDay15Cents
 
     fun summarize(
         incomes: List<IncomeEntity>,
@@ -148,10 +160,10 @@ object BudgetCalculator {
             people = lines,
             coupleActualCents = coupleActual,
             byPaymentMethod = expenses.groupBy { it.paymentMethodId }.mapValues { (_, list) ->
-                list.sumOf { resolvedPlanned(it, income, settings) } to list.sumOf { actual(it) }
+                list.sumOf { billedPlanned(it, income, settings) } to list.sumOf { billedActual(it) }
             },
             byCard = expenses.filter { it.cardId != null }.groupBy { it.cardId!! }.mapValues { (_, list) ->
-                list.sumOf { resolvedPlanned(it, income, settings) } to list.sumOf { actual(it) }
+                list.sumOf { billedPlanned(it, income, settings) } to list.sumOf { billedActual(it) }
             },
             byCategory = expenses.groupBy { it.categoryId }.mapValues { (_, list) ->
                 list.sumOf { resolvedPlanned(it, income, settings) } to list.sumOf { actual(it) }

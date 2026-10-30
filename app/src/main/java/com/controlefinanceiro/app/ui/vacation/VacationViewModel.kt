@@ -84,6 +84,8 @@ class VacationViewModel(userId: Long, repo: FinanceRepository) : FundViewModel(u
     ) { list, (vacation, totals), people, months, ref -> VacationUiState(list, vacation, totals, people, months, ref) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), VacationUiState())
 
+    override val payLabel = "Férias"
+
     fun select(id: Long) {
         selectedId.value = id
     }

@@ -46,6 +46,7 @@ import com.controlefinanceiro.app.ui.common.AmountField
 import com.controlefinanceiro.app.ui.common.DropdownField
 import com.controlefinanceiro.app.ui.common.MONTH_NAMES
 import com.controlefinanceiro.app.ui.common.Money
+import com.controlefinanceiro.app.ui.common.NoteField
 
 fun ExpenseBlock.title(): String = when (this) {
     ExpenseBlock.TITHE -> "Dízimo"
@@ -79,6 +80,7 @@ fun ExpenseEditorSheet(
     var paid30 by remember { mutableStateOf(Money.toInput(initial.paidDay30Cents)) }
     var paid15 by remember { mutableStateOf(Money.toInput(initial.paidDay15Cents)) }
     var isPaid by remember { mutableStateOf(initial.isPaid) }
+    var note by remember { mutableStateOf(initial.note) }
     // Installments are chosen when the entry is added; later ones come in the next months.
     var split by remember { mutableStateOf(false) }
     var count by remember { mutableStateOf("2") }
@@ -192,6 +194,14 @@ fun ExpenseEditorSheet(
                     AmountField("Pago dia 15", paid15, { paid15 = it }, Modifier.weight(1f))
                 }
             }
+            if (initial.fundPaidCents > 0) {
+                Text(
+                    "${Money.format(initial.fundPaidCents)} pago com ${initial.fundLabel ?: "PLR/férias"}: sai da meta do mês. " +
+                        "Para desfazer, exclua o gasto na aba ${initial.fundLabel ?: "da PLR ou das férias"}.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary,
+                )
+            }
+            NoteField(note) { note = it }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Checkbox(checked = isPaid, onCheckedChange = { isPaid = it })
                 Text("Pago")
@@ -221,6 +231,7 @@ fun ExpenseEditorSheet(
                                 paidDay30Cents = Money.parse(paid30) ?: 0,
                                 paidDay15Cents = Money.parse(paid15) ?: 0,
                                 isPaid = isPaid,
+                                note = note.trim(),
                             )
                         )
                     },

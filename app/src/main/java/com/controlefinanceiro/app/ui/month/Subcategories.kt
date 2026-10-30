@@ -79,6 +79,8 @@ import com.controlefinanceiro.app.ui.common.DropdownField
 import com.controlefinanceiro.app.ui.common.IconBadge
 import com.controlefinanceiro.app.ui.common.Money
 import com.controlefinanceiro.app.ui.common.MoneyText
+import com.controlefinanceiro.app.ui.common.NoteField
+import com.controlefinanceiro.app.ui.common.NoteLine
 import com.controlefinanceiro.app.ui.common.SectionCard
 import com.controlefinanceiro.app.ui.common.groupShape
 import com.controlefinanceiro.app.ui.theme.LocalMoneyColors
@@ -257,6 +259,7 @@ fun ItemEditorSheet(
     // An item saved without a date keeps no date; a new one starts on today (or the month's first day).
     var date by remember { mutableStateOf(if (initial != null) initial.date?.let(::formatDate).orEmpty() else formatDate(defaultDate.toEpochDay())) }
     var onDay15 by remember { mutableStateOf(initial?.onDay15 ?: (defaultDate.dayOfMonth <= 15)) }
+    var note by remember { mutableStateOf(initial?.note.orEmpty()) }
     // Installments are chosen when the purchase is added; an existing installment only edits its own month.
     var split by remember { mutableStateOf(false) }
     var count by remember { mutableStateOf("2") }
@@ -332,6 +335,7 @@ fun ItemEditorSheet(
                 label = { Text("Data (dd/mm/aaaa)") }, singleLine = true, isError = !dateOk,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
             )
+            NoteField(note) { note = it }
             Text("Pago com o salário do", style = MaterialTheme.typography.labelLarge)
             SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
                 listOf(true to "Dia 15", false to "Dia 30").forEachIndexed { index, (day15, label) ->
@@ -348,8 +352,8 @@ fun ItemEditorSheet(
                     onClick = {
                         val sub = subcategories.firstOrNull { it.id == subId }
                         val text = description.trim().ifEmpty { sub?.name ?: initial?.description.orEmpty() }
-                        val item = initial?.copy(description = text, date = parseDate(date), amountCents = typed ?: 0, onDay15 = onDay15)
-                            ?: SubcategoryItemEntity(expenseId = 0, description = text, date = parseDate(date), amountCents = typed ?: 0, onDay15 = onDay15)
+                        val item = initial?.copy(description = text, date = parseDate(date), amountCents = typed ?: 0, onDay15 = onDay15, note = note.trim())
+                            ?: SubcategoryItemEntity(expenseId = 0, description = text, date = parseDate(date), amountCents = typed ?: 0, onDay15 = onDay15, note = note.trim())
                         val n = installments
                         onSave(
                             subId,
@@ -430,6 +434,7 @@ fun SubcategoryRowSheet(
                             ).joinToString(" · "),
                             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
+                        NoteLine(item.note)
                     }
                     MoneyText(item.amountCents, style = MaterialTheme.typography.titleSmall)
                     IconButton(onClick = { onDeleteItem(item) }) {

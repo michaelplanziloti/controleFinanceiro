@@ -133,6 +133,8 @@ data class SubcategoryItemEntity(
     @ColumnInfo(name = "installment_count", defaultValue = "1") val installmentCount: Int = 1,
     /** Whole purchase value, split over the installments (the first one takes the leftover cents). */
     @ColumnInfo(name = "installment_total_cents") val installmentTotalCents: Long? = null,
+    /** Free text the user writes about the purchase. */
+    @ColumnInfo(defaultValue = "''") val note: String = "",
 )
 
 /**
@@ -231,6 +233,9 @@ data class FundExpenseEntity(
     /** Day of the purchase as epoch day, or null. */
     val date: Long? = null,
     @ColumnInfo(name = "created_at") val createdAt: Long = System.currentTimeMillis(),
+    @ColumnInfo(defaultValue = "''") val note: String = "",
+    /** The month's entry this spending paid ("deu baixa"), if it came from one. */
+    @ColumnInfo(name = "linked_expense_id") val linkedExpenseId: Long? = null,
 )
 
 /** Budget rule: tithe over gross income, the other three over income after tithe. Values in basis points (10000 = 100%). */
@@ -345,4 +350,12 @@ data class ExpenseEntity(
      * like the spreadsheet: "Jaqueta (1/3)". Null when unknown (typed in the sheet).
      */
     @ColumnInfo(name = "installment_total_cents") val installmentTotalCents: Long? = null,
+    /** Free text the user writes about the entry. */
+    @ColumnInfo(defaultValue = "''") val note: String = "",
+    /**
+     * Part of the entry paid with a vacation's or PLR's money ([fundLabel] says which), so the
+     * month's salary does not pay it: it comes off the month's target.
+     */
+    @ColumnInfo(name = "fund_paid_cents", defaultValue = "0") val fundPaidCents: Long = 0,
+    @ColumnInfo(name = "fund_label") val fundLabel: String? = null,
 )

@@ -33,3 +33,44 @@ class FundTitheTest {
         assertEquals(-10_000L, tithe(FundTotals(pay, listOf(extra(100_000)), emptyList()).plrTithe(plr.copy(postedMonthId = 5), r, 1000)))
     }
 }
+
+class FundPaysEntryTest {
+    private fun entry(planned: Long, paid15: Long = 0, fund: Long = 0, block: com.controlefinanceiro.app.data.db.ExpenseBlock = com.controlefinanceiro.app.data.db.ExpenseBlock.FIXED) =
+        com.controlefinanceiro.app.data.db.ExpenseEntity(monthId = 1, block = block, description = "IPVA", plannedCents = planned, paidDay15Cents = paid15, fundPaidCents = fund)
+
+    @Test
+    fun leftToPayIsWhatTheMonthStillOwes() {
+        assertEquals(200_000L, leftToPay(entry(200_000)))
+        assertEquals(150_000L, leftToPay(entry(200_000, paid15 = 50_000)))
+        // Nothing left (or no target): the whole target is offered.
+        assertEquals(200_000L, leftToPay(entry(200_000, paid15 = 200_000)))
+    }
+
+    @Test
+    fun paidByPlrComesOffTheMonthTarget() {
+        val settings = com.controlefinanceiro.app.data.db.BudgetSettingsEntity(userId = 1)
+        assertEquals(50_000L, com.controlefinanceiro.app.domain.BudgetCalculator.resolvedPlanned(entry(200_000, fund = 150_000), 0, settings))
+        assertEquals(0L, com.controlefinanceiro.app.domain.BudgetCalculator.resolvedPlanned(entry(200_000, fund = 250_000), 0, settings))
+    }
+
+    @Test
+    fun onlyOpenEntriesCanBePaid() {
+        val tithe = entry(1, block = com.controlefinanceiro.app.data.db.ExpenseBlock.TITHE)
+        val paid = entry(1).copy(isPaid = true)
+        val row = entry(1).copy(subcategoryId = 3)
+        val open = entry(1)
+        assertEquals(listOf(open), payableEntries(listOf(tithe, paid, row, open)))
+    }
+}
+
+class FundPaidActualTest {
+    @Test
+    fun paidValuesCoveredByPlrLeaveTheMonthButStayOnTheCard() {
+        val e = com.controlefinanceiro.app.data.db.ExpenseEntity(
+            monthId = 1, block = com.controlefinanceiro.app.data.db.ExpenseBlock.EXTRA, description = "IPVA",
+            plannedCents = 200_000, paidDay15Cents = 200_000, fundPaidCents = 150_000,
+        )
+        assertEquals(50_000L, com.controlefinanceiro.app.domain.BudgetCalculator.actual(e))
+        assertEquals(200_000L, com.controlefinanceiro.app.domain.BudgetCalculator.billedActual(e))
+    }
+}

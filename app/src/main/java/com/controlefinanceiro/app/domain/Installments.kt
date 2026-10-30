@@ -57,6 +57,8 @@ object Installments {
             paidDay30Cents = 0,
             paidDay15Cents = 0,
             isPaid = false,
+            fundPaidCents = 0,
+            fundLabel = null,
             createdAt = now,
         )
     }

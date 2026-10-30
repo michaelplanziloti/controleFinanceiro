@@ -177,6 +177,7 @@ fun VacationTab(viewModel: VacationViewModel, contentPadding: PaddingValues, onM
         onSaveIncome = viewModel::saveIncome, onDeleteIncome = viewModel::deleteIncome,
         onSaveExpense = viewModel::saveExpense, onDeleteExpense = viewModel::deleteExpense,
         onDismiss = { editingIncome = null; editingExpense = null },
+        months = state.months, loadEntries = viewModel::entriesOf, onPayEntry = viewModel::payEntry,
     )
 }
 

@@ -88,6 +88,8 @@ class PlrViewModel(userId: Long, repo: FinanceRepository) : FundViewModel(userId
     ) { list, (plr, totals), people, months, ref -> PlrUiState(list, plr, totals, people, months, ref) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), PlrUiState())
 
+    override val payLabel get() = state.value.plr?.title?.ifBlank { null } ?: "PLR"
+
     fun select(id: Long) {
         selectedId.value = id
     }

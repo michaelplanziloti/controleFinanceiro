@@ -35,12 +35,16 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -53,8 +57,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.controlefinanceiro.app.data.db.CardEntity
 import com.controlefinanceiro.app.data.db.CategoryEntity
+import com.controlefinanceiro.app.data.db.ExpenseBlock
+import com.controlefinanceiro.app.data.db.ExpenseEntity
 import com.controlefinanceiro.app.data.db.FundExpenseEntity
 import com.controlefinanceiro.app.data.db.FundIncomeEntity
+import com.controlefinanceiro.app.data.db.MonthEntity
 import com.controlefinanceiro.app.data.db.PaymentMethodEntity
 import com.controlefinanceiro.app.data.sheets.formatDate
 import com.controlefinanceiro.app.domain.BudgetCalculator
@@ -63,8 +70,11 @@ import com.controlefinanceiro.app.ui.common.BudgetBar
 import com.controlefinanceiro.app.ui.common.DateField
 import com.controlefinanceiro.app.ui.common.DropdownField
 import com.controlefinanceiro.app.ui.common.LabelValue
+import com.controlefinanceiro.app.ui.common.MONTH_NAMES
 import com.controlefinanceiro.app.ui.common.Money
 import com.controlefinanceiro.app.ui.common.MoneyText
+import com.controlefinanceiro.app.ui.common.NoteField
+import com.controlefinanceiro.app.ui.common.NoteLine
 import com.controlefinanceiro.app.ui.common.Pill
 import com.controlefinanceiro.app.ui.common.SectionCard
 import com.controlefinanceiro.app.ui.common.dateDigits
@@ -73,6 +83,7 @@ import com.controlefinanceiro.app.ui.common.usageColor
 import com.controlefinanceiro.app.ui.month.budgetStatusColor
 import com.controlefinanceiro.app.ui.theme.LocalBlockColors
 import com.controlefinanceiro.app.ui.theme.LocalHeroColors
+import java.time.LocalDate
 
 /** Lists the spending editor picks from. */
 data class FundReference(
@@ -244,6 +255,7 @@ fun FundExpensesCard(
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1, overflow = TextOverflow.Ellipsis,
                     )
+                    NoteLine(e.note)
                 }
                 Column(horizontalAlignment = Alignment.End) {
                     MoneyText(e.paidCents, style = MaterialTheme.typography.titleSmall, color = if (e.paidCents > 0) color else MaterialTheme.colorScheme.onSurfaceVariant)
@@ -300,7 +312,23 @@ fun FundIncomeSheet(initial: FundIncomeEntity, onSave: (FundIncomeEntity) -> Uni
     }
 }
 
-/** Adds or edits something the money pays for. */
+/** What is left to pay of a month's entry: its target less what was paid, or the whole target. */
+fun leftToPay(entry: ExpenseEntity): Long {
+    val left = entry.plannedCents - entry.fundPaidCents - BudgetCalculator.actual(entry)
+    return if (left > 0) left else entry.plannedCents
+}
+
+/** Entries a vacation or PLR can pay: open ones that are not the tithe or a subcategory's total. */
+fun payableEntries(entries: List<ExpenseEntity>): List<ExpenseEntity> =
+    entries.filter { !it.isPaid && it.block != ExpenseBlock.TITHE && it.subcategoryId == null }.sortedBy { it.description.lowercase() }
+
+/** A month's name for the pickers: "Novembro 2026". */
+fun monthName(m: MonthEntity) = "${MONTH_NAMES[m.month - 1]} ${m.year}"
+
+/**
+ * Adds or edits something the money pays for. A new one can also come from a month's entry
+ * ([months], [loadEntries]): it is paid with this money and the entry gets "baixa" ([onPayEntry]).
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FundExpenseSheet(
@@ -309,7 +337,25 @@ fun FundExpenseSheet(
     onSave: (FundExpenseEntity) -> Unit,
     onDelete: ((FundExpenseEntity) -> Unit)?,
     onDismiss: () -> Unit,
+    months: List<MonthEntity> = emptyList(),
+    loadEntries: (suspend (Long) -> List<ExpenseEntity>)? = null,
+    onPayEntry: ((FundExpenseEntity, ExpenseEntity) -> Unit)? = null,
 ) {
+    val canPick = initial.id == 0L && onPayEntry != null && loadEntries != null && months.isNotEmpty()
+    var fromMonth by remember { mutableStateOf(false) }
+    val today = LocalDate.now()
+    val sortedMonths = remember(months) { months.sortedByDescending { it.year * 100 + it.month } }
+    var monthId by remember {
+        mutableStateOf(sortedMonths.firstOrNull { it.year == today.year && it.month == today.monthValue }?.id ?: sortedMonths.firstOrNull()?.id)
+    }
+    var entries by remember { mutableStateOf<List<ExpenseEntity>?>(null) }
+    var entry by remember { mutableStateOf<ExpenseEntity?>(null) }
+    LaunchedEffect(fromMonth, monthId) {
+        entries = null
+        entry = null
+        val id = monthId
+        if (fromMonth && id != null && loadEntries != null) entries = payableEntries(loadEntries(id))
+    }
     var description by remember { mutableStateOf(initial.description) }
     var categoryId by remember { mutableStateOf(initial.categoryId) }
     var methodId by remember { mutableStateOf(initial.paymentMethodId) }
@@ -318,8 +364,9 @@ fun FundExpenseSheet(
     var paid by remember { mutableStateOf(Money.toInput(initial.paidCents)) }
     var isPaid by remember { mutableStateOf(initial.isPaid) }
     var date by remember { mutableStateOf(dateDigits(initial.date)) }
+    var note by remember { mutableStateOf(initial.note) }
     val dateOk = date.isEmpty() || parseDateDigits(date) != null
-    val valid = description.isNotBlank() && Money.parse(planned) != null && Money.parse(paid) != null && dateOk
+    val valid = description.isNotBlank() && Money.parse(planned) != null && Money.parse(paid) != null && dateOk && (!fromMonth || entry != null)
 
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         Column(
@@ -327,6 +374,55 @@ fun FundExpenseSheet(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text(if (initial.id == 0L) "Novo gasto" else "Editar gasto", style = MaterialTheme.typography.titleLarge)
+            if (canPick) {
+                SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                    listOf(false to "Gasto novo", true to "Lançamento de um mês").forEachIndexed { index, (pick, label) ->
+                        SegmentedButton(selected = fromMonth == pick, onClick = { fromMonth = pick }, shape = SegmentedButtonDefaults.itemShape(index, 2)) {
+                            Text(label)
+                        }
+                    }
+                }
+            }
+            if (fromMonth) {
+                DropdownField("Mês", sortedMonths, sortedMonths.firstOrNull { it.id == monthId }, ::monthName, { monthId = it?.id }, noneLabel = null)
+                val list = entries
+                when {
+                    list == null -> Text("Carregando…", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    list.isEmpty() -> Text(
+                        "Nenhum lançamento em aberto neste mês.", style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    else -> DropdownField(
+                        "Lançamento", list, entry, { "${it.description} · ${Money.format(leftToPay(it))}" },
+                        { picked ->
+                            entry = picked
+                            if (picked != null) {
+                                val cents = leftToPay(picked)
+                                description = picked.description
+                                categoryId = picked.categoryId
+                                methodId = picked.paymentMethodId
+                                cardId = picked.cardId
+                                planned = Money.toInput(cents)
+                                paid = Money.toInput(cents)
+                                isPaid = true
+                            }
+                        },
+                        noneLabel = null,
+                    )
+                }
+                if (entry != null) {
+                    Text(
+                        "O lançamento fica pago no mês, com a nota de que foi pago por aqui, e sai da meta do mês.",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            if (initial.linkedExpenseId != null) {
+                Text(
+                    "Deu baixa num lançamento do mês. Mudar o valor pago ajusta o lançamento; excluir este gasto reabre o lançamento.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
             OutlinedTextField(description, { description = it }, Modifier.fillMaxWidth(), label = { Text("Descrição (ex.: passagens)") }, singleLine = true)
             DropdownField("Categoria", reference.categories, reference.categories.firstOrNull { it.id == categoryId }, { it.name }, { categoryId = it?.id })
             DropdownField("Forma de pagamento", reference.paymentMethods, reference.paymentMethods.firstOrNull { it.id == methodId }, { it.name }, { methodId = it?.id })
@@ -336,6 +432,7 @@ fun FundExpenseSheet(
                 AmountField("Pago", paid, { paid = it }, Modifier.weight(1f))
             }
             DateField("Data (opcional)", date, { date = it }, Modifier.fillMaxWidth())
+            NoteField(note) { note = it }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Checkbox(checked = isPaid, onCheckedChange = { isPaid = it })
                 Text("Pago")
@@ -348,15 +445,17 @@ fun FundExpenseSheet(
                     onClick = {
                         val plannedCents = Money.parse(planned) ?: 0
                         val paidCents = Money.parse(paid) ?: 0
-                        onSave(
-                            initial.copy(
-                                description = description.trim(), categoryId = categoryId, paymentMethodId = methodId, cardId = cardId,
-                                plannedCents = plannedCents,
-                                // Marked as paid without a value: it was paid as planned.
-                                paidCents = if (isPaid && paidCents == 0L) plannedCents else paidCents,
-                                isPaid = isPaid, date = parseDateDigits(date),
-                            )
+                        val month = sortedMonths.firstOrNull { it.id == monthId }
+                        val saved = initial.copy(
+                            description = description.trim(), categoryId = categoryId, paymentMethodId = methodId, cardId = cardId,
+                            plannedCents = plannedCents,
+                            // Marked as paid without a value: it was paid as planned.
+                            paidCents = if (isPaid && paidCents == 0L) plannedCents else paidCents,
+                            isPaid = isPaid, date = parseDateDigits(date),
+                            note = note.trim().ifEmpty { if (fromMonth && month != null) "Lançamento de ${monthName(month)}" else "" },
                         )
+                        val picked = entry
+                        if (fromMonth && picked != null && onPayEntry != null) onPayEntry(saved, picked) else onSave(saved)
                     },
                 ) { Text("Salvar") }
             }
@@ -386,12 +485,18 @@ fun FundSheets(
     onSaveExpense: (FundExpenseEntity) -> Unit,
     onDeleteExpense: (FundExpenseEntity) -> Unit,
     onDismiss: () -> Unit,
+    months: List<MonthEntity> = emptyList(),
+    loadEntries: (suspend (Long) -> List<ExpenseEntity>)? = null,
+    onPayEntry: ((FundExpenseEntity, ExpenseEntity) -> Unit)? = null,
 ) {
     editingIncome?.let { income ->
         FundIncomeSheet(income, { onSaveIncome(it); onDismiss() }, if (income.id == 0L) null else { i -> onDeleteIncome(i); onDismiss() }, onDismiss)
     }
     editingExpense?.let { expense ->
-        FundExpenseSheet(expense, reference, { onSaveExpense(it); onDismiss() }, if (expense.id == 0L) null else { e -> onDeleteExpense(e); onDismiss() }, onDismiss)
+        FundExpenseSheet(
+            expense, reference, { onSaveExpense(it); onDismiss() }, if (expense.id == 0L) null else { e -> onDeleteExpense(e); onDismiss() }, onDismiss,
+            months, loadEntries, onPayEntry?.let { pay -> { s, e -> pay(s, e); onDismiss() } },
+        )
     }
 }
 

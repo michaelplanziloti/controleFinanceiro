@@ -180,6 +180,7 @@ fun PlrTab(viewModel: PlrViewModel, contentPadding: PaddingValues, onMenu: () ->
         onSaveIncome = viewModel::saveIncome, onDeleteIncome = viewModel::deleteIncome,
         onSaveExpense = viewModel::saveExpense, onDeleteExpense = viewModel::deleteExpense,
         onDismiss = { editingIncome = null; editingExpense = null },
+        months = state.months, loadEntries = viewModel::entriesOf, onPayEntry = viewModel::payEntry,
     )
 }
 
