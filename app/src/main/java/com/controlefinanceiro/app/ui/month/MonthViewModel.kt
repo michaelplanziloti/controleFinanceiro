@@ -87,6 +87,9 @@ class MonthViewModel(
         val DEFAULT_CARD_ORDER = listOf("overview", "cards", "tracker", "usage", "groups", "couple")
     }
 
+    /** Filters of the month's lists (day 15 or 30, paid or open...); they stay when the month changes. */
+    val filters = MutableStateFlow(MonthFilters())
+
     /** True while a pull-to-refresh check of the spreadsheet runs. */
     val refreshing = MutableStateFlow(false)
 

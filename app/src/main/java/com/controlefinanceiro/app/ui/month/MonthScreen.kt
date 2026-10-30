@@ -37,6 +37,7 @@ import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.CreditCard
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.FilterList
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.MoreHoriz
 import androidx.compose.material.icons.outlined.Payments
@@ -48,6 +49,8 @@ import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material.icons.outlined.VolunteerActivism
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -198,6 +201,12 @@ fun MonthScreen(viewModel: MonthViewModel, contentPadding: PaddingValues, onMenu
     var showTrackerChooser by remember { mutableStateOf(false) }
     var showSearch by remember { mutableStateOf(false) }
     var showCloseMonth by remember { mutableStateOf(false) }
+    var showFilters by remember { mutableStateOf(false) }
+    val filters by viewModel.filters.collectAsStateWithLifecycle()
+    // With filters on, every section opens so what matched is in view.
+    LaunchedEffect(filters) {
+        if (filters.active) Section.entries.forEach { collapsed[it.name] = false }
+    }
 
     fun newSubcategory() {
         editingSubcategory = SubcategoryEntity(userId = 0, name = "", block = ExpenseBlock.COUPLE, plannedCents = 0, inTracker = true)
@@ -418,6 +427,11 @@ fun MonthScreen(viewModel: MonthViewModel, contentPadding: PaddingValues, onMenu
                     }
                 },
                 actions = {
+                    IconButton(onClick = { showFilters = true }) {
+                        BadgedBox(badge = { if (filters.active) Badge { Text("${filters.count}") } }) {
+                            Icon(Icons.Outlined.FilterList, "Filtros")
+                        }
+                    }
                     IconButton(onClick = { showSearch = true }) { Icon(Icons.Outlined.Search, "Buscar") }
                     FilledTonalIconButton(onClick = { showNewMonth = true }, modifier = Modifier.padding(end = 8.dp)) {
                         Icon(Icons.Default.Add, "Novo mês")
@@ -431,6 +445,7 @@ fun MonthScreen(viewModel: MonthViewModel, contentPadding: PaddingValues, onMenu
         } else {
             val blockColors = LocalBlockColors.current
             val refreshing by viewModel.refreshing.collectAsStateWithLifecycle()
+            val shown = filteredExpenses(detail, filters, viewModel::resolvedPlanned)
             // Pulling the month down checks the spreadsheet right away.
             PullToRefreshBox(isRefreshing = refreshing, onRefresh = { viewModel.refresh() }, modifier = Modifier.fillMaxSize().padding(padding)) {
             LazyColumn(
@@ -461,6 +476,11 @@ fun MonthScreen(viewModel: MonthViewModel, contentPadding: PaddingValues, onMenu
 
                 // Always present (even empty), so the list does not stay scrolled past it when it appears.
                 single("updated") { detail.month.updatedAt?.let { UpdatedLine(it, detail.month.updatedInSheet) } }
+                if (filters.active) {
+                    single("filters") {
+                        ActiveFiltersBar(filters, state.reference, shown.size, onOpen = { showFilters = true }, onClear = { viewModel.filters.value = MonthFilters() })
+                    }
+                }
                 // The overview cards, in the order the user arranged them by dragging.
                 cardOrder.forEachIndexed { index, key ->
                     val anchor = when (key) {
@@ -526,7 +546,7 @@ fun MonthScreen(viewModel: MonthViewModel, contentPadding: PaddingValues, onMenu
                 }
 
                 Section.entries.forEach { section ->
-                    val list = detail.expenses.filter { it.block in section.blocks }.newestFirst()
+                    val list = shown.filter { it.block in section.blocks }.newestFirst()
                     val color = blockColors.of(section.newBlock)
                     val total = list.sumOf { BudgetCalculator.actual(it) }
                     val planned = if (section == Section.PERSONAL) summary.totalAllowanceCents
@@ -557,11 +577,15 @@ fun MonthScreen(viewModel: MonthViewModel, contentPadding: PaddingValues, onMenu
                                     PersonSubheader(shortName(person.name), line?.spentCents ?: 0, line?.allowanceCents ?: 0, color)
                                 }
                                 expenseRows(personal, color)
-                                if (personal.isEmpty()) single("empty-person-${person.id}") { EmptyLine("Nenhum gasto de ${shortName(person.name)}.") }
+                                if (personal.isEmpty()) single("empty-person-${person.id}") {
+                                    EmptyLine(if (filters.active) "Nenhum gasto de ${shortName(person.name)} com esses filtros." else "Nenhum gasto de ${shortName(person.name)}.")
+                                }
                             }
                         } else {
                             expenseRows(list, color)
-                            if (list.isEmpty()) single("empty-${section.name}") { EmptyLine("Nenhum lançamento. Toque em + para adicionar.") }
+                            if (list.isEmpty()) single("empty-${section.name}") {
+                                EmptyLine(if (filters.active) "Nenhum lançamento com esses filtros." else "Nenhum lançamento. Toque em + para adicionar.")
+                            }
                         }
                     }
                 }
@@ -578,6 +602,17 @@ fun MonthScreen(viewModel: MonthViewModel, contentPadding: PaddingValues, onMenu
 
     val budgetAlert by viewModel.budgetAlert.collectAsStateWithLifecycle()
     budgetAlert?.let { BudgetAlertDialog(it, onDismiss = viewModel::dismissBudgetAlert) }
+    if (showFilters) {
+        FiltersSheet(
+            filters, state.reference,
+            matching = detail?.let { filteredExpenses(it, filters, viewModel::resolvedPlanned).size } ?: 0,
+            onChange = { viewModel.filters.value = it },
+            onDismiss = {
+                showFilters = false
+                if (filters.active) goTo(Section.FIXED.name)
+            },
+        )
+    }
     if (showCloseMonth && detail != null && summary != null) {
         CloseMonthSheet(
             expenses = detail.expenses,
@@ -632,7 +667,7 @@ fun MonthScreen(viewModel: MonthViewModel, contentPadding: PaddingValues, onMenu
         } else {
             SubcategoryRowSheet(
                 row = row,
-                items = detail.items.filter { it.expenseId == rowId }.newestFirstItems(),
+                items = filters.items(detail.items.filter { it.expenseId == rowId }).newestFirstItems(),
                 onAddItem = { editingItem = SubcategoryItemEntity(expenseId = rowId, description = "", amountCents = 0).takeIf { row.subcategoryId == null } to row.subcategoryId },
                 onEditItem = { editingItem = it to row.subcategoryId },
                 onDeleteItem = ::deleteItemWithUndo,
@@ -1458,6 +1493,13 @@ private fun PayAllDialog(title: String, count: Int, totalCents: Long, onConfirm:
 }
 
 /** Lists show the latest additions first (rows from before the time was recorded follow their insertion order). */
+/** The month's entries that pass [filters] (all of them while none is on). */
+private fun filteredExpenses(detail: MonthDetail, filters: MonthFilters, planned: (ExpenseEntity) -> Long): List<ExpenseEntity> {
+    if (!filters.active) return detail.expenses
+    val items = detail.items.groupBy { it.expenseId }
+    return detail.expenses.filter { filters.matches(it, items[it.id].orEmpty(), planned(it)) }
+}
+
 fun List<ExpenseEntity>.newestFirst(): List<ExpenseEntity> =
     sortedWith(compareByDescending<ExpenseEntity> { it.createdAt }.thenByDescending { it.id })
 
