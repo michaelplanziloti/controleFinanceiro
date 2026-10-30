@@ -390,22 +390,29 @@ fun MonthScreen(viewModel: MonthViewModel, contentPadding: PaddingValues, onMenu
                         IconButton(onClick = { viewModel.step(-1) }) {
                             Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, "Mês anterior")
                         }
-                        Box {
+                        // The arrows keep their size; the month pill takes what is left and can shrink.
+                        Box(Modifier.weight(1f, fill = false)) {
                             Row(
                                 Modifier
                                     .clip(CircleShape)
                                     .background(MaterialTheme.colorScheme.surfaceContainerHigh)
                                     .clickable(enabled = state.months.isNotEmpty()) { showPicker = true }
-                                    .padding(start = 16.dp, end = 10.dp, top = 8.dp, bottom = 8.dp),
+                                    .padding(horizontal = 12.dp, vertical = 8.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 Text(
                                     detail?.month?.let { monthLabel(it.year, it.month) } ?: "Controle Financeiro",
-                                    style = MaterialTheme.typography.titleMedium, maxLines = 1,
+                                    Modifier.weight(1f, fill = false),
+                                    style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis,
                                 )
-                                if (state.months.isNotEmpty()) Icon(Icons.Default.KeyboardArrowDown, null, Modifier.size(20.dp))
                             }
                             DropdownMenu(expanded = showPicker, onDismissRequest = { showPicker = false }) {
+                                DropdownMenuItem(
+                                    text = { Text("Novo mês") },
+                                    leadingIcon = { Icon(Icons.Default.Add, null) },
+                                    onClick = { showPicker = false; showNewMonth = true },
+                                )
+                                HorizontalDivider()
                                 state.months.forEach { m ->
                                     DropdownMenuItem(
                                         text = { Text(monthLabel(m.year, m.month)) },
@@ -433,9 +440,6 @@ fun MonthScreen(viewModel: MonthViewModel, contentPadding: PaddingValues, onMenu
                         }
                     }
                     IconButton(onClick = { showSearch = true }) { Icon(Icons.Outlined.Search, "Buscar") }
-                    FilledTonalIconButton(onClick = { showNewMonth = true }, modifier = Modifier.padding(end = 8.dp)) {
-                        Icon(Icons.Default.Add, "Novo mês")
-                    }
                 },
             )
         },
