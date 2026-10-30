@@ -14,6 +14,7 @@ import com.controlefinanceiro.app.ui.fund.FundReference
 import com.controlefinanceiro.app.ui.fund.FundTotals
 import com.controlefinanceiro.app.ui.fund.FundViewModel
 import com.controlefinanceiro.app.ui.fund.PayLine
+import com.controlefinanceiro.app.ui.fund.withTithe
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -50,6 +51,14 @@ fun PlrEntity.earlierInYear(all: List<PlrEntity>): Long {
 
 fun PlrEntity.result(all: List<PlrEntity>): Plr.Result = Plr.calculate(grossCents, earlierInYear(all), otherDiscountsCents)
 
+/**
+ * Tithe of the PLR and its extra money. Once the PLR is posted as income in a month, that month's
+ * tithe already counts it, so here only the extra money is left.
+ */
+fun FundTotals.plrTithe(plr: PlrEntity, r: Plr.Result, titheBp: Int): FundTotals =
+    if (plr.postedMonthId == null) withTithe(titheBp, r.netCents)
+    else withTithe(titheBp, 0, "o da PLR vai no dízimo do mês em que foi lançada")
+
 @OptIn(ExperimentalCoroutinesApi::class)
 class PlrViewModel(userId: Long, repo: FinanceRepository) : FundViewModel(userId, repo) {
     private val selectedId = MutableStateFlow<Long?>(null)
@@ -63,13 +72,14 @@ class PlrViewModel(userId: Long, repo: FinanceRepository) : FundViewModel(userId
             ?: list.firstOrNull()
     }
 
-    private val detail = combine(active, plrs) { plr, all -> plr to all }.flatMapLatest { (plr, all) ->
+    private val detail = combine(active, plrs, titheBp) { plr, all, bp -> Triple(plr, all, bp) }.flatMapLatest { (plr, all, bp) ->
         rows(FundKind.PLR, plr?.id).map { (incomes, expenses) ->
-            val pay = plr?.let {
-                val r = it.result(all)
-                listOf(PayLine("PLR líquida", "Bruto ${Money.format(r.grossCents)} · IR ${Money.format(r.taxCents)} · toque para ver o cálculo", r.netCents))
+            val r = plr?.result(all)
+            val pay = r?.let {
+                listOf(PayLine("PLR líquida", "Bruto ${Money.format(it.grossCents)} · IR ${Money.format(it.taxCents)} · toque para ver o cálculo", it.netCents))
             }.orEmpty()
-            plr to FundTotals(pay, incomes, expenses)
+            val totals = FundTotals(pay, incomes, expenses)
+            plr to if (plr == null || r == null) totals else totals.plrTithe(plr, r, bp)
         }
     }
 

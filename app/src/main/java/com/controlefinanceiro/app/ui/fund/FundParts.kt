@@ -57,6 +57,7 @@ import com.controlefinanceiro.app.data.db.FundExpenseEntity
 import com.controlefinanceiro.app.data.db.FundIncomeEntity
 import com.controlefinanceiro.app.data.db.PaymentMethodEntity
 import com.controlefinanceiro.app.data.sheets.formatDate
+import com.controlefinanceiro.app.domain.BudgetCalculator
 import com.controlefinanceiro.app.ui.common.AmountField
 import com.controlefinanceiro.app.ui.common.BudgetBar
 import com.controlefinanceiro.app.ui.common.DateField
@@ -92,6 +93,18 @@ data class FundTotals(val pay: List<PayLine>, val incomes: List<FundIncomeEntity
 
     /** What is left once everything planned is paid (more where it already went over). */
     val expectedLeftCents get() = moneyCents - expenses.sumOf { maxOf(it.plannedCents, it.paidCents) }
+}
+
+/**
+ * Adds the tithe as a line taken off the money: the tithe % of the tab's own pay ([ownCents]) plus
+ * its extra money. Built from those values every time, so it follows any change to them.
+ */
+fun FundTotals.withTithe(titheBp: Int, ownCents: Long, note: String? = null): FundTotals {
+    val base = ownCents + incomes.sumOf { it.amountCents }
+    val cents = BudgetCalculator.percentOf(base, titheBp)
+    if (cents <= 0L) return this
+    val detail = "${if (titheBp % 100 == 0) "${titheBp / 100}%" else Money.formatPercent(titheBp / 10_000.0)} de ${Money.format(base)}" + note?.let { " · $it" }.orEmpty()
+    return copy(pay = pay + PayLine("Dízimo", detail, -cents))
 }
 
 /** Top bar like the month's: menu, previous, the picked one (tap to choose), next, and "+" for a new one. */

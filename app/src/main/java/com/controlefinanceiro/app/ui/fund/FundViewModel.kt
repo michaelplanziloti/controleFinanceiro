@@ -3,6 +3,7 @@ package com.controlefinanceiro.app.ui.fund
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.controlefinanceiro.app.data.FinanceRepository
+import com.controlefinanceiro.app.data.db.BudgetSettingsEntity
 import com.controlefinanceiro.app.data.db.FundExpenseEntity
 import com.controlefinanceiro.app.data.db.FundIncomeEntity
 import com.controlefinanceiro.app.data.db.FundKind
@@ -10,6 +11,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
 /** What the Férias and PLR tabs share: their extra money and spending, and the lists to pick from. */
@@ -22,6 +24,9 @@ abstract class FundViewModel(protected val userId: Long, protected val repo: Fin
     protected fun rows(kind: FundKind, ownerId: Long?): Flow<Pair<List<FundIncomeEntity>, List<FundExpenseEntity>>> =
         if (ownerId == null) flowOf(emptyList<FundIncomeEntity>() to emptyList())
         else combine(repo.observeFundIncomes(kind, ownerId), repo.observeFundExpenses(kind, ownerId)) { i, e -> i to e }
+
+    /** Tithe % of the budget rule, in basis points. */
+    protected val titheBp: Flow<Int> = repo.observeSettings(userId).map { (it ?: BudgetSettingsEntity(userId = userId)).titheBp }
 
     /** A short message for the screen (e.g. after posting the pay as income). */
     val message = MutableStateFlow<String?>(null)

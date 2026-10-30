@@ -13,6 +13,7 @@ import com.controlefinanceiro.app.ui.fund.FundReference
 import com.controlefinanceiro.app.ui.fund.FundTotals
 import com.controlefinanceiro.app.ui.fund.FundViewModel
 import com.controlefinanceiro.app.ui.fund.PayLine
+import com.controlefinanceiro.app.ui.fund.withTithe
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -54,6 +55,10 @@ fun VacationEntity.payLines(): List<PayLine> {
     )
 }
 
+/** Tithe of the free vacation money; the part kept for the months pays its tithe there, as income. */
+fun FundTotals.vacationTithe(r: Vacation.Result, titheBp: Int): FundTotals =
+    withTithe(titheBp, r.netCents - r.reserveCents, "o que vai para ${r.reserveMonths()} paga o dízimo no mês".takeIf { r.reserveCents > 0 })
+
 @OptIn(ExperimentalCoroutinesApi::class)
 class VacationViewModel(userId: Long, repo: FinanceRepository) : FundViewModel(userId, repo) {
     private val selectedId = MutableStateFlow<Long?>(null)
@@ -67,8 +72,11 @@ class VacationViewModel(userId: Long, repo: FinanceRepository) : FundViewModel(u
             ?: list.firstOrNull()
     }
 
-    private val detail = active.flatMapLatest { vacation ->
-        rows(FundKind.VACATION, vacation?.id).map { (incomes, expenses) -> vacation to FundTotals(vacation?.payLines().orEmpty(), incomes, expenses) }
+    private val detail = combine(active, titheBp) { vacation, bp -> vacation to bp }.flatMapLatest { (vacation, bp) ->
+        rows(FundKind.VACATION, vacation?.id).map { (incomes, expenses) ->
+            val totals = FundTotals(vacation?.payLines().orEmpty(), incomes, expenses)
+            vacation to (vacation?.let { totals.vacationTithe(it.result(), bp) } ?: totals)
+        }
     }
 
     val state: StateFlow<VacationUiState> = combine(
