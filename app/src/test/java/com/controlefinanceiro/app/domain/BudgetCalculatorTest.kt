@@ -61,6 +61,28 @@ class BudgetCalculatorTest {
     }
 
     @Test
+    fun incomeLeftOutOfTheTitheStaysInTheIncome() {
+        val incomes = listOf(
+            IncomeEntity(monthId = 1, personId = 1, source = "Salário", amountCents = 1_000_000),
+            IncomeEntity(monthId = 1, personId = 1, source = "Reembolso", amountCents = 200_000, countsForTithe = false),
+        )
+        val s = BudgetCalculator.summarize(incomes, emptyList(), listOf(expense(ExpenseBlock.TITHE, 0, auto = true)), listOf(julia), settings)
+        assertEquals(1_200_000, s.incomeCents)
+        assertEquals(1_000_000, s.titheBaseCents)
+        assertEquals(100_000, s.groups.first { it.group == BudgetGroup.TITHE }.plannedCents)
+        assertEquals(100_000, s.groups.first { it.group == BudgetGroup.TITHE }.recommendedCents)
+        assertEquals(1_100_000, s.plannedSurplusCents)
+    }
+
+    @Test
+    fun titheSplitKeepsTheProportionOfTheTwoDays() {
+        assertEquals(80_000L to 40_000L, BudgetCalculator.titheSplit(120_000, 20_000, 10_000))
+        assertEquals(0L to 50_001L, BudgetCalculator.titheSplit(50_001, 0, 7))
+        // Nothing to go by: half each, and the cents still add up.
+        assertEquals(50_001L to 50_000L, BudgetCalculator.titheSplit(100_001, 0, 0))
+    }
+
+    @Test
     fun titheTypedByHandStillFollowsIncome() {
         // A tithe row saved with an old fixed value (like a month copied from the sheet) is recalculated too.
         val stale = expense(ExpenseBlock.TITHE, 129_680, auto = false)

@@ -203,7 +203,7 @@ class YearViewModel(private val userId: Long, private val repo: FinanceRepositor
     }
 
     private fun point(m: Int, monthId: Long?, rows: List<ExpenseEntity>, summary: MonthSummary, ref: Reference, future: Boolean, projected: Boolean): MonthPoint {
-        fun planned(e: ExpenseEntity) = BudgetCalculator.resolvedPlanned(e, summary.incomeCents, ref.settings)
+        fun planned(e: ExpenseEntity) = BudgetCalculator.resolvedPlanned(e, summary.titheBaseCents, ref.settings)
         val invested = rows.filter { it.block == ExpenseBlock.INVESTMENT }
         return MonthPoint(
             month = m,

@@ -286,6 +286,8 @@ data class IncomeEntity(
     @ColumnInfo(name = "person_id") val personId: Long?,
     val source: String,
     @ColumnInfo(name = "amount_cents") val amountCents: Long,
+    /** Whether the tithe is calculated over this money. */
+    @ColumnInfo(name = "counts_for_tithe", defaultValue = "1") val countsForTithe: Boolean = true,
 )
 
 /** Monthly allowance ("mesada") of one person. */

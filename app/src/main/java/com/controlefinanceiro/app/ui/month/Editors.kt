@@ -134,7 +134,7 @@ fun ExpenseEditorSheet(
             DropdownField("Cartão", reference.cards, reference.cards.firstOrNull { it.id == cardId }, { it.name }, { cardId = it?.id })
             if (block == ExpenseBlock.TITHE) {
                 Text(
-                    "A meta é calculada pela renda do mês e se ajusta sempre que uma renda muda.",
+                    "A meta e o pago são recalculados sempre que muda uma renda que entra no dízimo.",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
@@ -254,6 +254,7 @@ fun IncomeEditorSheet(
     var source by remember { mutableStateOf(initial.source) }
     var personId by remember { mutableStateOf(initial.personId) }
     var amount by remember { mutableStateOf(Money.toInput(initial.amountCents)) }
+    var countsForTithe by remember { mutableStateOf(initial.countsForTithe) }
     val valid = source.isNotBlank() && Money.parse(amount) != null
 
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
@@ -265,12 +266,19 @@ fun IncomeEditorSheet(
             OutlinedTextField(source, { source = it }, Modifier.fillMaxWidth(), label = { Text("Fonte") }, singleLine = true)
             DropdownField("De quem", people, people.firstOrNull { it.id == personId }, { it.name }, { personId = it?.id }, noneLabel = "Casal")
             AmountField("Valor", amount, { amount = it })
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Entra no dízimo")
+                    Text("O dízimo do mês é calculado sobre este valor", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Switch(checked = countsForTithe, onCheckedChange = { countsForTithe = it })
+            }
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 if (onDelete != null) OutlinedButton(onClick = { onDelete(initial) }, Modifier.weight(1f)) { Text("Excluir") }
                 Button(
                     enabled = valid,
                     modifier = Modifier.weight(1f),
-                    onClick = { onSave(initial.copy(source = source.trim(), personId = personId, amountCents = Money.parse(amount) ?: 0)) },
+                    onClick = { onSave(initial.copy(source = source.trim(), personId = personId, amountCents = Money.parse(amount) ?: 0, countsForTithe = countsForTithe)) },
                 ) { Text("Salvar") }
             }
             Spacer(Modifier.height(16.dp))

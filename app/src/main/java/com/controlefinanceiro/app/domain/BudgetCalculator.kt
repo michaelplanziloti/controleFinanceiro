@@ -47,10 +47,15 @@ data class MonthSummary(
     /** Planned to actual per card, only for expenses linked to a card. */
     val byCard: Map<Long, Pair<Long, Long>>,
     val byCategory: Map<Long?, Pair<Long, Long>>,
+    /** The income the tithe is calculated over. */
+    val titheBaseCents: Long = incomeCents,
 ) {
     val plannedCents: Long get() = groups.sumOf { it.plannedCents }
     val actualCents: Long get() = groups.sumOf { it.actualCents }
     val recommendedCents: Long get() = groups.sumOf { it.recommendedCents }
+
+    /** Income minus what the budget plans to spend (extras are outside the budget). */
+    val plannedSurplusCents: Long get() = incomeCents - plannedCents
 
     /** Income minus what the budget actually spent (extras are outside the budget). */
     val surplusCents: Long get() = incomeCents - actualCents
@@ -82,17 +87,31 @@ data class MonthSummary(
 object BudgetCalculator {
 
     /**
-     * The tithe always follows the month's income, so any change to an income recalculates it. What
-     * a vacation or PLR paid of an entry comes off its target, since the salary does not pay it.
+     * The tithe always follows [titheBaseCents] (see [titheBase]), so any change to those incomes
+     * recalculates it. What a vacation or PLR paid of an entry comes off its target, since the
+     * salary does not pay it.
      */
-    fun resolvedPlanned(expense: ExpenseEntity, incomeCents: Long, settings: BudgetSettingsEntity): Long =
-        if (expense.block == ExpenseBlock.TITHE) percentOf(incomeCents, settings.titheBp)
+    fun resolvedPlanned(expense: ExpenseEntity, titheBaseCents: Long, settings: BudgetSettingsEntity): Long =
+        if (expense.block == ExpenseBlock.TITHE) percentOf(titheBaseCents, settings.titheBp)
         else if (expense.fundPaidCents == 0L) expense.plannedCents // may be negative, like a refund
         else maxOf(0, expense.plannedCents - expense.fundPaidCents)
 
     /** What the card or payment method is charged: the whole target, even the part a vacation or PLR pays. */
-    fun billedPlanned(expense: ExpenseEntity, incomeCents: Long, settings: BudgetSettingsEntity): Long =
-        resolvedPlanned(expense.copy(fundPaidCents = 0), incomeCents, settings)
+    fun billedPlanned(expense: ExpenseEntity, titheBaseCents: Long, settings: BudgetSettingsEntity): Long =
+        resolvedPlanned(expense.copy(fundPaidCents = 0), titheBaseCents, settings)
+
+    /** The incomes the tithe is calculated over. */
+    fun titheBase(incomes: List<IncomeEntity>): Long = incomes.filter { it.countsForTithe }.sumOf { it.amountCents }
+
+    /**
+     * Splits the tithe between day 15 and day 30 (in that order) in the proportion of [day15Cents]
+     * and [day30Cents]; half each when those are empty.
+     */
+    fun titheSplit(totalCents: Long, day15Cents: Long, day30Cents: Long): Pair<Long, Long> {
+        val sum = day15Cents + day30Cents
+        val day15 = if (sum > 0) Math.round(totalCents * day15Cents.toDouble() / sum) else Math.round(totalCents / 2.0)
+        return day15 to totalCents - day15
+    }
 
     /** What the month's salary paid: the paid values, less the part a vacation or PLR covered. */
     fun actual(expense: ExpenseEntity): Long = billedActual(expense).let { it - minOf(maxOf(it, 0), expense.fundPaidCents) }
@@ -108,14 +127,15 @@ object BudgetCalculator {
         settings: BudgetSettingsEntity,
     ): MonthSummary {
         val income = incomes.sumOf { it.amountCents }
-        val afterTithe = income - percentOf(income, settings.titheBp)
+        val titheBase = titheBase(incomes)
+        val afterTithe = income - percentOf(titheBase, settings.titheBp)
         fun planned(block: ExpenseBlock) =
-            expenses.filter { it.block == block }.sumOf { resolvedPlanned(it, income, settings) }
+            expenses.filter { it.block == block }.sumOf { resolvedPlanned(it, titheBase, settings) }
         fun actual(block: ExpenseBlock) = expenses.filter { it.block == block }.sumOf { actual(it) }
 
         val allowanceTotal = allowances.sumOf { it.amountCents }
         val groups = listOf(
-            GroupLine(BudgetGroup.TITHE, percentOf(income, settings.titheBp), planned(ExpenseBlock.TITHE), actual(ExpenseBlock.TITHE)),
+            GroupLine(BudgetGroup.TITHE, percentOf(titheBase, settings.titheBp), planned(ExpenseBlock.TITHE), actual(ExpenseBlock.TITHE)),
             GroupLine(BudgetGroup.FIXED, percentOf(afterTithe, settings.fixedBp), planned(ExpenseBlock.FIXED), actual(ExpenseBlock.FIXED)),
             GroupLine(
                 BudgetGroup.VARIABLE,
@@ -160,14 +180,15 @@ object BudgetCalculator {
             people = lines,
             coupleActualCents = coupleActual,
             byPaymentMethod = expenses.groupBy { it.paymentMethodId }.mapValues { (_, list) ->
-                list.sumOf { billedPlanned(it, income, settings) } to list.sumOf { billedActual(it) }
+                list.sumOf { billedPlanned(it, titheBase, settings) } to list.sumOf { billedActual(it) }
             },
             byCard = expenses.filter { it.cardId != null }.groupBy { it.cardId!! }.mapValues { (_, list) ->
-                list.sumOf { billedPlanned(it, income, settings) } to list.sumOf { billedActual(it) }
+                list.sumOf { billedPlanned(it, titheBase, settings) } to list.sumOf { billedActual(it) }
             },
             byCategory = expenses.groupBy { it.categoryId }.mapValues { (_, list) ->
-                list.sumOf { resolvedPlanned(it, income, settings) } to list.sumOf { actual(it) }
+                list.sumOf { resolvedPlanned(it, titheBase, settings) } to list.sumOf { actual(it) }
             },
+            titheBaseCents = titheBase,
         )
     }
 

@@ -24,6 +24,7 @@ import com.controlefinanceiro.app.data.sheets.MonthSnapshot
 import com.controlefinanceiro.app.data.sheets.SheetMonth
 import com.controlefinanceiro.app.data.sheets.cardFromPayment
 import com.controlefinanceiro.app.data.sheets.nameKey
+import com.controlefinanceiro.app.domain.BudgetCalculator
 import com.controlefinanceiro.app.domain.Installments
 import com.controlefinanceiro.app.domain.PasswordHasher
 import kotlinx.coroutines.Dispatchers
@@ -215,7 +216,7 @@ class FinanceRepository(private val db: AppDatabase, private val onMonthChanged:
     suspend fun postPlr(plr: PlrEntity, userId: Long, year: Int, month: Int, source: String, cents: Long): Boolean {
         val target = months.find(userId, year, month) ?: return false
         db.withTransaction {
-            months.upsertIncome(IncomeEntity(monthId = target.id, personId = plr.personId, source = source, amountCents = cents))
+            keepingTithe(target.id) { months.upsertIncome(IncomeEntity(monthId = target.id, personId = plr.personId, source = source, amountCents = cents)) }
             funds.upsertPlr(plr.copy(postedMonthId = target.id))
         }
         changed(target.id)
@@ -233,7 +234,8 @@ class FinanceRepository(private val db: AppDatabase, private val onMonthChanged:
         targets.filterValues { it == null }.keys.toList().takeIf { it.isNotEmpty() }?.let { return it }
         db.withTransaction {
             parts.forEach { (month, source, cents) ->
-                months.upsertIncome(IncomeEntity(monthId = targets.getValue(month)!!.id, personId = vacation.personId, source = source, amountCents = cents))
+                val monthId = targets.getValue(month)!!.id
+                keepingTithe(monthId) { months.upsertIncome(IncomeEntity(monthId = monthId, personId = vacation.personId, source = source, amountCents = cents)) }
             }
             db.vacationDao().upsert(vacation.copy(postedMonthId = targets.values.firstOrNull()?.id))
         }
@@ -477,13 +479,39 @@ class FinanceRepository(private val db: AppDatabase, private val onMonthChanged:
     suspend fun deleteMonth(month: MonthEntity) = months.delete(month)
 
     suspend fun saveIncome(income: IncomeEntity) {
-        months.upsertIncome(income)
+        keepingTithe(income.monthId) { months.upsertIncome(income) }
         changed(income.monthId)
     }
 
     suspend fun deleteIncome(income: IncomeEntity) {
-        months.deleteIncome(income)
+        keepingTithe(income.monthId) { months.deleteIncome(income) }
         changed(income.monthId)
+    }
+
+    /** Runs [change] on the month's incomes; when the money the tithe is over changes, what is paid of it follows. */
+    private suspend fun keepingTithe(monthId: Long, change: suspend () -> Unit) = db.withTransaction {
+        val before = BudgetCalculator.titheBase(months.incomes(monthId))
+        change()
+        if (BudgetCalculator.titheBase(months.incomes(monthId)) != before) recalculateTithe(monthId)
+    }
+
+    /**
+     * Puts the month's tithe in the tithe's paid values (its target is always calculated), split
+     * between the two days as they were, or as in the month before when they are empty. Returns
+     * whether they changed.
+     */
+    private suspend fun recalculateTithe(monthId: Long): Boolean {
+        val month = months.byId(monthId) ?: return false
+        val tithe = months.expenses(monthId).firstOrNull { it.block == ExpenseBlock.TITHE } ?: return false
+        val settings = ref.settings(month.userId) ?: BudgetSettingsEntity(userId = month.userId)
+        val total = BudgetCalculator.percentOf(BudgetCalculator.titheBase(months.incomes(monthId)), settings.titheBp)
+        val model = if (tithe.paidDay15Cents + tithe.paidDay30Cents > 0) tithe
+        else months.previous(month.userId, month.year * 100 + month.month)
+            ?.let { previous -> months.expenses(previous.id).firstOrNull { it.block == ExpenseBlock.TITHE } } ?: tithe
+        val (day15, day30) = BudgetCalculator.titheSplit(total, model.paidDay15Cents, model.paidDay30Cents)
+        if (day15 == tithe.paidDay15Cents && day30 == tithe.paidDay30Cents) return false
+        months.updateExpense(tithe.copy(paidDay15Cents = day15, paidDay30Cents = day30))
+        return true
     }
 
     suspend fun setAllowance(monthId: Long, personId: Long, amountCents: Long) {
@@ -552,13 +580,22 @@ class FinanceRepository(private val db: AppDatabase, private val onMonthChanged:
         val oldItems = months.items(monthId).groupBy { "${rowNames[it.expenseId]}|${it.description.nameKey()}|${it.amountCents}|${it.date}" }
             .mapValues { (_, l) -> l.toMutableList() }
         val now = System.currentTimeMillis()
+        // The sheet does not say which incomes are left out of the tithe; the app's choice stays.
+        val oldIncomes = months.incomes(monthId)
+        val titheBaseBefore = BudgetCalculator.titheBase(oldIncomes)
+        val incomesBefore = oldIncomes.groupBy { it.source.nameKey() }.mapValues { (_, l) -> l.toMutableList() }
         months.deleteIncomes(monthId)
         months.deleteAllowances(monthId)
         months.deleteExpenses(monthId)
 
         val names = NameResolver(userId)
         sheet.incomes.forEach {
-            months.upsertIncome(IncomeEntity(monthId = monthId, personId = it.person?.let { p -> names.person(p) }, source = it.source, amountCents = it.amountCents))
+            months.upsertIncome(
+                IncomeEntity(
+                    monthId = monthId, personId = it.person?.let { p -> names.person(p) }, source = it.source, amountCents = it.amountCents,
+                    countsForTithe = incomesBefore[it.source.nameKey()]?.removeFirstOrNull()?.countsForTithe ?: true,
+                )
+            )
         }
         sheet.allowances.forEach {
             months.putAllowance(AllowanceEntity(monthId = monthId, personId = names.person(it.person), amountCents = it.amountCents))
@@ -635,9 +672,11 @@ class FinanceRepository(private val db: AppDatabase, private val onMonthChanged:
             sumItems(rowId)
             months.expense(rowId) != before
         }
+        // An income changed in the sheet moves the tithe too (not on a month's first download).
+        val titheChanged = oldIncomes.isNotEmpty() && BudgetCalculator.titheBase(months.incomes(monthId)) != titheBaseBefore && recalculateTithe(monthId)
         months.markSynced(monthId, sheet.editedAt)
         // A row whose values did not match its items was corrected: send it back to the sheet.
-        if (sumsChanged > 0) months.markDirty(monthId)
+        if (sumsChanged > 0 || titheChanged) months.markDirty(monthId)
         // Same time and origin the tab shows in B3 (an old script without times: the download time).
         months.markUpdated(monthId, sheet.editedAt.takeIf { it > 0 } ?: System.currentTimeMillis(), inSheet = !sheet.lastChangeFromApp)
         monthId

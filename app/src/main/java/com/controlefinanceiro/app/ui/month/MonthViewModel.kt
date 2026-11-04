@@ -306,7 +306,7 @@ class MonthViewModel(
     fun resolvedPlanned(expense: ExpenseEntity): Long {
         val s = state.value
         return BudgetCalculator.resolvedPlanned(
-            expense, s.summary?.incomeCents ?: 0, s.reference.settings ?: BudgetSettingsEntity(userId = userId),
+            expense, s.summary?.titheBaseCents ?: 0, s.reference.settings ?: BudgetSettingsEntity(userId = userId),
         )
     }
 }

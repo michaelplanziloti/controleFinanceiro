@@ -49,6 +49,13 @@ class SheetsPayloadTest {
     }
 
     @Test
+    fun anIncomeLeftOutSendsTheTitheAsAValue() {
+        val out = IncomeEntity(monthId = 9, personId = 1, source = "Reembolso", amountCents = 500_000, countsForTithe = false)
+        val json = SheetsPayload.build(snapshot.copy(incomes = snapshot.incomes + out), "chave-1")
+        assertTrue(json.contains(""""planned":1000.00,"autoPlanned":false"""))
+    }
+
+    @Test
     fun moneyIsExactAndTitheUsesTheIncome() {
         assertTrue(json.contains(""""planned":1000.00,"autoPlanned":true"""))
         assertTrue(json.contains(""""paid15":1577.29,"paid":true"""))

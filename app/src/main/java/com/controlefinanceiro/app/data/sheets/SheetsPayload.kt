@@ -36,7 +36,7 @@ data class MonthSnapshot(
 object SheetsPayload {
 
     fun build(snapshot: MonthSnapshot, key: String): String {
-        val income = snapshot.incomes.sumOf { it.amountCents }
+        val titheBase = BudgetCalculator.titheBase(snapshot.incomes)
         fun personName(id: Long?) = snapshot.people.firstOrNull { it.id == id }?.name
         fun payment(expense: ExpenseEntity) =
             snapshot.cards.firstOrNull { it.id == expense.cardId }?.let { "Cartão ${it.name}" }
@@ -62,8 +62,9 @@ object SheetsPayload {
                     "payment" to payment(e),
                     "person" to personName(e.personId),
                     "dueDay" to e.dueDay,
-                    "planned" to Money(BudgetCalculator.resolvedPlanned(e, income, snapshot.settings)),
-                    "autoPlanned" to (e.autoPlanned || e.block == ExpenseBlock.TITHE),
+                    "planned" to Money(BudgetCalculator.resolvedPlanned(e, titheBase, snapshot.settings)),
+                    // The sheet's formula is over the whole income: with an income left out, it gets the value.
+                    "autoPlanned" to (e.block == ExpenseBlock.TITHE && snapshot.incomes.all { it.countsForTithe }),
                     "paid30" to Money(e.paidDay30Cents),
                     "paid15" to Money(e.paidDay15Cents),
                     "paid" to e.isPaid,

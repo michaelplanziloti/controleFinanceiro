@@ -884,16 +884,21 @@ private fun HeroCard(
                 if (hidden) {
                     Text(HIDDEN_MONEY, style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.SemiBold, color = hero.content)
                 } else {
-                    MoneyText(summary.surplusCents, style = MaterialTheme.typography.displaySmall, color = hero.content)
+                    MoneyText(summary.plannedSurplusCents, style = MaterialTheme.typography.displaySmall, color = hero.content)
                 }
+                Text("Renda menos previsto", style = MaterialTheme.typography.bodySmall, color = hero.muted)
                 Spacer(Modifier.height(10.dp))
                 Pill(
                     "Poupança ${if (hidden) "••%" else Money.formatPercent(summary.savingsRate)}",
                     color = hero.content, container = hero.tile,
                 )
-                // While there are bills still to pay, how the month closes once they are paid.
-                if (summary.expectedSpentCents != summary.actualCents) {
-                    Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "Renda menos realizado: ${if (hidden) HIDDEN_MONEY else Money.format(summary.surplusCents)}",
+                    style = MaterialTheme.typography.bodySmall, color = hero.muted,
+                )
+                // Where a group already went over its target, the month closes below the value above.
+                if (summary.expectedSurplusCents != summary.plannedSurplusCents) {
                     Text(
                         "Fechamento previsto: ${if (hidden) HIDDEN_MONEY else Money.format(summary.expectedSurplusCents)}",
                         style = MaterialTheme.typography.bodySmall, color = hero.muted,
@@ -1261,7 +1266,10 @@ private fun IncomeRow(income: IncomeEntity, owner: String, shape: Shape, onClick
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
             Text(income.source, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(owner, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(
+                if (income.countsForTithe) owner else "$owner · fora do dízimo",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
         MoneyText(income.amountCents, style = MaterialTheme.typography.titleSmall, colored = true)
     }
